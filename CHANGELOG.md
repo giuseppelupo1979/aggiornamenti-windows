@@ -2,6 +2,15 @@
 
 Tutte le modifiche rilevanti al progetto. Le versioni seguono il [versionamento semantico](https://semver.org/lang/it/).
 
+## [0.1.2] - 2026-10-09
+
+### Migliorato
+- Un'app che winget non può aggiornare non compare più come "Non riuscito" in rosso: la riga dice "Spostata tra le non controllate" e l'app passa subito in quella sezione con la spiegazione, senza aspettare il controllo successivo.
+- Se l'installer fallisce perché il programma è aperto, il messaggio lo indica per nome (per esempio "Greenshot è aperto: chiudilo…").
+
+### Corretto
+- Aggiornamenti compariva tra le proprie app non controllate.
+
 ## [0.1.1] - 2026-10-09
 
 ### Corretto

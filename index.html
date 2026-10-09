@@ -220,7 +220,7 @@ const I18N = {
     available: n => n === 1 ? "1 aggiornamento disponibile" : `${n} aggiornamenti disponibili`,
     now: "adesso", minAgo: n => `${n} min fa`, of: "di",
     selectAll: "Seleziona tutto", apps: "Applicazioni", cli: "Strumenti da riga di comando",
-    done: "Aggiornata", failed: "Non riuscito", queued: "In coda", inProgress: "In corso",
+    done: "Aggiornata", failed: "Non riuscito", moved: "Spostata tra le non controllate", queued: "In coda", inProgress: "In corso",
     exclude: "Escludi", include: "Includi", major: "versione maggiore", unverified: "da verificare",
     phases: { prepare: "Preparazione", download: "Download", unpack: "Apertura del pacchetto", verify: "Verifica della firma",
               install: "Installazione", replace: "Sostituzione della versione precedente", finish: "Rifinitura",
@@ -264,7 +264,7 @@ const I18N = {
     available: n => n === 1 ? "1 update available" : `${n} updates available`,
     now: "just now", minAgo: n => `${n} min ago`, of: "of",
     selectAll: "Select all", apps: "Applications", cli: "Command-line tools",
-    done: "Updated", failed: "Failed", queued: "Queued", inProgress: "In progress",
+    done: "Updated", failed: "Failed", moved: "Moved to not checked", queued: "Queued", inProgress: "In progress",
     exclude: "Exclude", include: "Include", major: "major version", unverified: "unverified",
     phases: { prepare: "Preparing", download: "Downloading", unpack: "Opening the package", verify: "Checking the signature",
               install: "Installing", replace: "Replacing the previous version", finish: "Finishing",
@@ -396,7 +396,7 @@ function renderOverall() {
 
 const excluded = () => data.excluded || {};
 const isEx = i => i.key in excluded();
-function pending() { return data.items.filter(i => !i.updated); }
+function pending() { return data.items.filter(i => !i.updated && !i.moved); }
 let exOpen = false;
 let unOpen = false;
 
@@ -408,17 +408,18 @@ function iconHtml(path, kind, name) {
 
 function rowHtml(i, busy, ex) {
   const job = data.jobs[i.id];
-  const st = i.updated ? "done" : job?.status;
+  const st = i.updated ? "done" : i.moved ? "moved" : job?.status;
   const status =
     st === "done" ? L.done :
     st === "running" ? (job.pct !== null && job.pct !== undefined ? "" : '<span class="spin"></span>') :
     st === "queued" ? "" :
-    st === "error" ? L.failed : "";
+    st === "error" ? L.failed :
+    st === "moved" ? L.moved : "";
   const act = busy || st === "running" || st === "queued" ? "" :
     `<span class="act" data-act="${ex ? "include" : "exclude"}">${ex ? L.include : L.exclude}</span>`;
-  return `<li class="${st === "done" ? "done" : ""}">
+  return `<li class="${st === "done" || st === "moved" ? "done" : ""}">
     <div class="row" data-id="${esc(i.id)}" data-key="${esc(i.key)}">
-      <input type="checkbox" ${selected.has(i.id) ? "checked" : ""} ${busy || i.updated ? "disabled" : ""}>
+      <input type="checkbox" ${selected.has(i.id) ? "checked" : ""} ${busy || i.updated || i.moved ? "disabled" : ""}>
       ${iconHtml(i.path, i.kind, i.name)}
       <div style="min-width:0">
         <div class="name">${esc(i.name)}${i.major ? `<span class="tag">${L.major}</span>` : ""}${i.verified === false ? `<span class="tag">${L.unverified}</span>` : ""}</div>
@@ -487,7 +488,7 @@ function render() {
   const busy = data.scanning || data.running;
   const items = data.items;
   const main = items.filter(i => !isEx(i));
-  const todo = main.filter(i => !i.updated);
+  const todo = main.filter(i => !i.updated && !i.moved);
   const allPending = pending();
 
   if (firstLoad && !data.scanning) {

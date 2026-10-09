@@ -25,7 +25,7 @@ import urllib.request
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import urlparse
 
-VERSION = "0.1.1"   # tenere allineata con CHANGELOG.md
+VERSION = "0.1.2"   # tenere allineata con CHANGELOG.md
 # --demo: dati finti, cartelle temporanee, nessuna modifica al sistema (per prove e screenshot)
 DEMO = "--demo" in sys.argv
 HOST = "127.0.0.1"
@@ -89,6 +89,8 @@ MESSAGES = {
                  + ("This app updates through a different installer than the one it was installed with: use its built-in updater, or uninstall and reinstall it.",) * 2,
     "installer_failed": ("L'installer del programma non è andato a buon fine: se il programma era aperto (anche solo nell'area di notifica) chiudilo e riprova, oppure rispondi Sì alla richiesta di Windows.",) * 2
                         + ("The program's installer failed: if the program was open (even just in the notification area) close it and try again, or answer Yes to Windows' prompt.",) * 2,
+    "app_open": ("{x} è aperto: chiudilo (anche dall'area di notifica vicino all'orologio) e riprova.",) * 2
+                + ("{x} is running: close it (including from the notification area by the clock) and try again.",) * 2,
     "need_admin": ("Questo aggiornamento richiede i privilegi di amministratore: attivali in basso nella pagina.",) * 2
                   + ("This update needs administrator rights: turn them on at the bottom of the page.",) * 2,
 }
@@ -428,6 +430,8 @@ def scan_winget():
     for r in installed:
         if r.get("source") or r["id"].startswith("MSIX\\") or SYSTEM_NAMES.search(r["name"]):
             continue
+        if r["name"].strip() == "Aggiornamenti" or "Aggiornamenti" in r["id"]:
+            continue   # sé stesso: si aggiorna con il proprio meccanismo
         name = TRUNC.sub("", r["name"]).strip()
         if name in seen:
             continue
@@ -558,7 +562,7 @@ def update_one(item):
             with lock:
                 state["jobs"][jid]["log"] = "\n".join(lines)[-6000:]
 
-    ok = False
+    ok, reason = False, None
     if not item.get("token"):
         log(t("id_cut", x=item["id"]))
     else:
@@ -586,7 +590,8 @@ def update_one(item):
                 s.setdefault("unupgradable", {})[item["token"]] = {"reason": reason, "version": item["installed"]}
                 save_settings(s)
             elif not ok and re.search(r"codice di uscita|exit code", text, re.I):
-                log(t("installer_failed"))
+                running = app_running(item["name"])
+                log(t("app_open", x=running) if running else t("installer_failed"))
             if reason == "tech_diff":
                 log(t("tech_diff"))
             if not ok and not is_admin() and re.search(r"amministrator|administrator|0x80070005|elevat", "\n".join(lines), re.I):
@@ -594,9 +599,28 @@ def update_one(item):
         except Exception as e:
             log(str(e))
     with lock:
-        state["jobs"][jid]["status"] = "done" if ok else "error"
         if ok:
+            state["jobs"][jid]["status"] = "done"
             state["items"] = [{**i, "updated": True} if i["id"] == jid else i for i in state["items"]]
+        elif reason:
+            # non è un errore da correggere ma un limite di winget: si sposta subito tra le non controllate
+            state["jobs"][jid]["status"] = "moved"
+            state["items"] = [{**i, "moved": True} if i["id"] == jid else i for i in state["items"]]
+            state["unchecked"] = sorted(state["unchecked"] + [{"name": item["name"], "version": item["installed"],
+                                                               "reason": reason, "path": None}],
+                                        key=lambda u: u["name"].lower())
+        else:
+            state["jobs"][jid]["status"] = "error"
+
+
+def app_running(name):
+    """Nome del processo in esecuzione che corrisponde all'app (prima parola del nome), se c'è."""
+    word = re.split(r"[\s\-_.(]", name.strip())[0]
+    if len(word) < 4:
+        return None
+    rc, out = powershell(f"Get-Process -ErrorAction SilentlyContinue | Where-Object {{ $_.ProcessName -like '*{word}*' }} "
+                         "| Select-Object -First 1 -Expand ProcessName", timeout=30)
+    return out.strip() or None
 
 
 def winget_download_dirs():
@@ -646,7 +670,7 @@ def cleanup():
 
 def do_updates(ids):
     with lock:
-        todo = [i for i in state["items"] if i["id"] in ids and not i.get("updated")]
+        todo = [i for i in state["items"] if i["id"] in ids and not i.get("updated") and not i.get("moved")]
         for i in todo:
             state["jobs"][i["id"]] = {"status": "queued", "log": "", "phase": None, "pct": None, "bytes": None, "total": None}
         state["batch"] = {"total": len(todo), "done": 0}
@@ -667,7 +691,7 @@ def do_updates(ids):
 def visible_pending():
     excluded = load_excluded()
     with lock:
-        return [i for i in state["items"] if not i.get("updated") and i.get("key") not in excluded]
+        return [i for i in state["items"] if not i.get("updated") and not i.get("moved") and i.get("key") not in excluded]
 
 
 def start_scan_sync():
