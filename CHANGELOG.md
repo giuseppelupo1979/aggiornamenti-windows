@@ -2,6 +2,33 @@
 
 Tutte le modifiche rilevanti al progetto. Le versioni seguono il [versionamento semantico](https://semver.org/lang/it/).
 
+## [0.3.0] - 2026-10-09
+
+Nata da una revisione indipendente del codice (16 prove riproducibili) e dai suggerimenti di un utente.
+
+### Aggiunto
+- **Interrompi**: durante un giro il pulsante "Aggiorna" diventa "Interrompi"; finisce l'installazione in corso e lascia le altre da fare.
+- **Funzionamento solo manuale**: privilegi di amministratore e avvio all'accensione ora sono separati. Senza controlli pianificati il programma gira solo quando lo apri, e con Esci si chiude del tutto.
+- **Forza chiusura / Rimanda** per i programmi che non si chiudono da soli; **Riprova** per quelli messi da parte; **Dettagli** separato dalla casella di selezione.
+- **Storico** degli aggiornamenti, conservato tra un avvio e l'altro.
+- Riquadro "Aggiornamenti è stato chiuso" quando la finestra perde il programma, e chiusura automatica della finestra con Esci.
+- 22 test automatici eseguiti prima di ogni build; librerie della build con versioni fissate.
+
+### Corretto
+- Dopo 10 secondi un programma aperto veniva chiuso d'autorità anche con una domanda di salvataggio già aperta: ora **non si forza mai senza una scelta esplicita**, e di notte un programma aperto si rimanda sempre, controllandolo subito prima di ogni installazione.
+- Un errore inatteso (per esempio un comando lento) lasciava il programma bloccato su "in corso" fino al riavvio: ora ogni errore chiude il proprio aggiornamento e libera il programma.
+- Una scansione fallita diventava "Tutto aggiornato": ora l'errore viene mostrato, si tiene l'ultimo elenco valido e la notifica non parte. Lo stesso per Windows Update.
+- L'auto-aggiornamento sostituiva l'exe senza verificarlo: ora controlla lo SHA-256 pubblicato, l'intestazione e la dimensione, e rimette al suo posto la versione in uso se qualcosa va storto. La nuova versione viene proposta solo quando i file sono davvero nella Release, e la Release diventa pubblica solo dopo il caricamento di entrambi gli exe.
+- Esci dall'icona o una reinstallazione durante un aggiornamento lo interrompevano: ora si aspetta la fine.
+- Si installa la versione mostrata (`--version`, `--source`), non una più nuova uscita nel frattempo.
+- L'aggiornamento notturno poteva partire a mezzogiorno o saltare la giornata se il programma era occupato: ora parte solo tra l'orario scelto e 5 ore dopo, e riprova se era occupato.
+- Tabelle di winget a 4 colonne e programmi con un nome che inizia con un numero venivano letti male.
+- Un errore temporaneo escludeva un programma per sempre: ora scade dopo 7 giorni e c'è "Riprova".
+- Dopo un errore la casella di selezione non funzionava più.
+- Richieste API con dati non validi causavano un'eccezione invece di un errore chiaro; l'ultimo pezzo dell'output di un comando poteva andare perso; la rimozione dell'avvio automatico dichiarava successo anche quando Windows la rifiutava.
+- Scritture concorrenti delle impostazioni potevano perdersi; il registro ora ruota a 1 MB.
+- Il link "Cerca" cercava la versione **Mac** dei programmi.
+
 ## [0.2.2] - 2026-10-09
 
 ### Corretto

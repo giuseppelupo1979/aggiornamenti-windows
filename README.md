@@ -1,6 +1,6 @@
 # Aggiornamenti per Windows
 
-**Tiene aggiornati tutti i programmi del tuo PC con un clic.** Apri Aggiornamenti, vedi quali programmi hanno una versione nuova e li aggiorni tutti insieme, senza dover aprire i siti dei produttori uno per uno. È gratuito, senza pubblicità e senza account.
+**Tiene aggiornati con un clic i programmi del tuo PC che winget conosce, cioè la grande maggioranza.** Apri Aggiornamenti, vedi quali programmi hanno una versione nuova e li aggiorni tutti insieme, senza dover aprire i siti dei produttori uno per uno. È gratuito, senza pubblicità e senza account.
 
 [English version →](README.en.md)
 
@@ -39,11 +39,12 @@ Hai saltato la scelta o vuoi cambiarla? In fondo alla finestra trovi **Privilegi
 
 ## Come si usa
 
-- **Clicca sui programmi** da aggiornare, oppure su **Seleziona tutto**, poi premi **Aggiorna**. Una barra mostra cosa sta succedendo per ogni programma.
+- **Clicca sui programmi** da aggiornare, oppure su **Seleziona tutto**, poi premi **Aggiorna**. Una barra mostra cosa sta succedendo per ogni programma. Durante il giro il pulsante diventa **Interrompi**: finisce l'installazione in corso e lascia le altre per dopo.
+- Viene installata **esattamente la versione che vedi** nell'elenco, non una più nuova uscita nel frattempo.
 - I programmi segnati **versione maggiore** (un grande salto di versione) non vengono selezionati da soli: aggiornali solo se sai che ti serve.
-- Passando sopra un programma compare **Escludi**: non verrà più proposto. Lo ritrovi in fondo, nella sezione *Escluse*.
-- In **Controllo automatico** puoi farti avvisare ogni giorno con una notifica, oppure lasciare che aggiorni tutto da solo di notte.
-- Se un programma da aggiornare è aperto, Aggiornamenti lo chiude, lo aggiorna e lo riapre. Se ha un documento non salvato non lo chiude: te lo segnala.
+- **Escludi**, accanto a ogni programma, lo toglie dall'elenco **per sempre**: non viene più proposto né aggiornato di notte. Lo ritrovi in fondo, nella sezione *Escluse*, dove **Includi** lo rimette in elenco.
+- In **Controllo automatico** puoi farti avvisare ogni giorno con una notifica, oppure lasciare che aggiorni da solo di notte (tra le 3 e le 8: se il PC è spento, si riprova la notte dopo). Puoi anche spegnere tutto: con **Avvia all'accensione** disattivato Aggiornamenti funziona **solo quando lo apri tu**, e con *Esci* si chiude del tutto.
+- Se un programma da aggiornare è aperto, Aggiornamenti gli chiede di chiudersi, lo aggiorna e lo riapre. Se non si chiude da solo (per esempio perché chiede di salvare), **non lo forza**: la riga mostra **Forza chiusura** e **Rimanda**, e decidi tu. Di notte un programma aperto non viene mai chiuso: si rimanda.
 - L'**icona vicino all'orologio** mostra un pallino quando ci sono aggiornamenti; cliccala per aprire la finestra o per controllare subito.
 - Quando esce una nuova versione di Aggiornamenti stesso, compare un riquadro in alto con il pulsante **Installa**.
 
@@ -67,7 +68,13 @@ No. Tutto funziona sul tuo PC. Le uniche connessioni sono quelle necessarie per 
 Aggiornamenti vede i programmi che winget conosce, cioè la grande maggioranza. Quelli che non riesce a controllare sono elencati in fondo, in *Non controllate*: per quelli usa l'aggiornamento interno del programma. Microsoft Edge non compare perché si aggiorna già da solo.
 
 **Un aggiornamento è "Non riuscito".**
-Cliccaci sopra per vedere il motivo. I casi più comuni: hai risposto *No* alla richiesta di Windows, oppure il programma era aperto. Chiudilo e riprova.
+Clicca **Dettagli** accanto per vedere il motivo. I casi più comuni: hai risposto *No* alla richiesta di Windows, oppure il programma era aperto. Chiudilo e riprova. I programmi che winget non riesce ad aggiornare passano in *Non controllate*, con il pulsante **Riprova**.
+
+**In Gestione attività vedo due "Aggiornamenti.exe".**
+È normale: è un solo programma, che all'avvio si scompatta in due processi. Se li chiudi da lì il programma si ferma davvero; la finestra resta aperta ma lo dice ("Aggiornamenti è stato chiuso") e si può chiudere. Per riaprirlo usa il menu Start o il Desktop. Il modo normale per chiuderlo è **Esci** dall'icona vicino all'orologio: chiude anche la finestra, e se un aggiornamento è in corso aspetta che finisca.
+
+**Il controllo dice che non è riuscito.**
+Se winget o Windows Update non rispondono, Aggiornamenti lo scrive e mostra l'ultimo elenco valido invece di dire che è tutto a posto. Di solito basta riprovare più tardi con **Controlla**.
 
 **Funziona su Windows 10?**
 È provato su Windows 11. Su Windows 10 funziona se è installato *Programma di installazione app* (winget) dal Microsoft Store.

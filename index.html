@@ -121,6 +121,18 @@
   .notice .meta { white-space: normal; }
   .act.link { opacity: 1; text-decoration: none; }
   .reason { white-space: normal; }
+  .act { opacity: .55; background: none; border: 0; padding: 2px 4px; font: inherit; font-size: 12px; color: var(--muted); }
+  .row:hover .act, .act:focus-visible { opacity: 1; }
+  .act:focus-visible, button:focus-visible, input:focus-visible { outline: 2px solid var(--fg); outline-offset: 2px; }
+  .mini { font-size: 12px; padding: 4px 10px; margin-left: 6px; }
+  .status .details { color: inherit; text-decoration: underline; text-underline-offset: 3px; cursor: pointer; margin-left: 6px; }
+  .status.blocked, .status.postponed { color: var(--muted); }
+  .warn-line { color: var(--err); font-size: 13px; margin: -28px 0 24px; }
+  .gone { position: fixed; inset: 0; background: rgba(0,0,0,.72); display: grid; place-items: center; z-index: 20; padding: 16px; }
+  .gone .card { background: var(--bg); border: 1px solid var(--line); border-radius: 18px; padding: 32px; max-width: 460px; text-align: center; }
+  .gone h2 { font-size: 22px; color: var(--fg); text-transform: none; letter-spacing: 0; margin: 0 0 10px; }
+  .gone p { color: var(--muted); margin: 0 0 22px; }
+  .history li { display: flex; justify-content: space-between; gap: 12px; padding: 8px 4px; font-size: 13px; color: var(--muted); }
   .welcome { position: fixed; inset: 0; background: rgba(0,0,0,.55); display: grid; place-items: center; z-index: 10; padding: 16px; }
   .welcome .card { background: var(--bg); border: 1px solid var(--line); border-radius: 18px; padding: 32px; max-width: 520px; width: 100%; }
   .welcome h2 { font-size: 26px; font-weight: 600; letter-spacing: -.01em; color: var(--fg); text-transform: none; margin: 0 0 8px; }
@@ -183,6 +195,7 @@
 
   <div id="overall"></div>
   <div id="welcome"></div>
+  <div id="gone"></div>
   <div id="list"></div>
 
   <footer>
@@ -224,7 +237,18 @@ const I18N = {
   it: {
     title: "Aggiornamenti", check: "Controlla", update: "Aggiorna", updateAll: "Aggiorna tutto", updateN: n => `Aggiorna (${n})`,
     scanning: "Controllo in corso…", cleaning: "Pulizia della cache…", updating: "Aggiornamento in corso…", error: "Errore: ",
-    allUpToDate: "Tutto aggiornato", noneNeeded: "Nessuna app ha bisogno di aggiornamenti.",
+    allUpToDate: "Nessun aggiornamento", noneNeeded: "Nessun aggiornamento disponibile per i programmi controllati. Quelli che il programma non sa controllare sono in fondo, in Non controllate.",
+    interrupt: "Interrompi", stopping: "Mi fermo dopo l'installazione in corso…",
+    blocked: "Non si chiude da solo", force: "Forza chiusura", postpone: "Rimanda", postponed: "Rimandato",
+    forceConfirm: n => `Chiudere d'autorità ${n}? Eventuali modifiche non salvate in ${n} andranno perse.`,
+    details: "Dettagli", retry: "Riprova",
+    staleErr: (m, a) => `Controllo non riuscito (${m}). Mostro l'ultimo elenco valido${a ? ", del " + a : ""}.`,
+    warnWU: "Windows Update non ha risposto: i suoi aggiornamenti non sono stati verificati.",
+    warnSrc: "Una delle fonti di winget non ha risposto: l'elenco potrebbe essere incompleto.",
+    goneTitle: "Aggiornamenti è stato chiuso", goneText: "Questa finestra mostra dati non più aggiornati. Per riaprire il programma usa il menu Start o il collegamento sul Desktop.",
+    goneClose: "Chiudi questa finestra", history: "Storico", actionFailed: "Operazione non riuscita: ",
+    loginOffHint: "Avvio automatico spento: Aggiornamenti funziona solo quando lo apri tu, e con Esci si chiude del tutto.",
+    res: { done: "aggiornato", error: "non riuscito", blocked: "non chiuso", postponed: "rimandato", moved: "non aggiornabile da winget" },
     available: n => n === 1 ? "1 aggiornamento disponibile" : `${n} aggiornamenti disponibili`,
     now: "adesso", minAgo: n => `${n} min fa`, of: "di",
     selectAll: "Seleziona tutto", apps: "Applicazioni", cli: "Strumenti da riga di comando",
@@ -274,7 +298,18 @@ const I18N = {
   en: {
     title: "Aggiornamenti", check: "Check", update: "Update", updateAll: "Update all", updateN: n => `Update (${n})`,
     scanning: "Checking…", cleaning: "Cleaning the cache…", updating: "Updating…", error: "Error: ",
-    allUpToDate: "Everything is up to date", noneNeeded: "No app needs updating.",
+    allUpToDate: "No updates", noneNeeded: "No updates available for the checked programs. Programs it can't check are listed at the bottom, under Not checked.",
+    interrupt: "Stop", stopping: "Stopping after the current installation…",
+    blocked: "Won't close by itself", force: "Force close", postpone: "Postpone", postponed: "Postponed",
+    forceConfirm: n => `Force ${n} to close? Any unsaved changes in ${n} will be lost.`,
+    details: "Details", retry: "Retry",
+    staleErr: (m, a) => `Check failed (${m}). Showing the last valid list${a ? ", from " + a : ""}.`,
+    warnWU: "Windows Update didn't respond: its updates weren't checked.",
+    warnSrc: "One of winget's sources didn't respond: the list may be incomplete.",
+    goneTitle: "Aggiornamenti has been closed", goneText: "This window shows outdated data. To reopen the program use the Start menu or the Desktop shortcut.",
+    goneClose: "Close this window", history: "History", actionFailed: "Action failed: ",
+    loginOffHint: "Start at login is off: Aggiornamenti only runs when you open it, and Quit closes it completely.",
+    res: { done: "updated", error: "failed", blocked: "not closed", postponed: "postponed", moved: "not updatable by winget" },
     available: n => n === 1 ? "1 update available" : `${n} updates available`,
     now: "just now", minAgo: n => `${n} min ago`, of: "of",
     selectAll: "Select all", apps: "Applications", cli: "Command-line tools",
@@ -418,6 +453,7 @@ const excluded = () => data.excluded || {};
 const isEx = i => i.key in excluded();
 function pending() { return data.items.filter(i => !i.updated && !i.moved); }
 let exOpen = false;
+let histOpen = false;
 let unOpen = false;
 
 function iconHtml(path, kind, name) {
@@ -429,17 +465,20 @@ function iconHtml(path, kind, name) {
 function rowHtml(i, busy, ex) {
   const job = data.jobs[i.id];
   const st = i.updated ? "done" : i.moved ? "moved" : job?.status;
+  const det = job?.log ? ` <a class="details" data-details="${esc(i.id)}" href="#">${L.details}</a>` : "";
   const status =
-    st === "done" ? L.done :
+    st === "done" ? L.done + det :
     st === "running" ? (job.pct !== null && job.pct !== undefined ? "" : '<span class="spin"></span>') :
     st === "queued" ? "" :
-    st === "error" ? L.failed :
-    st === "moved" ? L.moved : "";
-  const act = busy || st === "running" || st === "queued" ? "" :
-    `<span class="act" data-act="${ex ? "include" : "exclude"}">${ex ? L.include : L.exclude}</span>`;
+    st === "error" ? L.failed + det :
+    st === "blocked" ? `${L.blocked}${det}<br><button type="button" class="mini" data-force="${esc(i.id)}">${L.force}</button><button type="button" class="mini" data-dismiss="${esc(i.id)}">${L.postpone}</button>` :
+    st === "postponed" ? L.postponed + det :
+    st === "moved" ? L.moved + det : "";
+  const act = busy || st === "running" || st === "queued" || st === "blocked" ? "" :
+    `<button type="button" class="act" data-act="${ex ? "include" : "exclude"}">${ex ? L.include : L.exclude}</button>`;
   return `<li class="${st === "done" || st === "moved" ? "done" : ""}">
     <div class="row" data-id="${esc(i.id)}" data-key="${esc(i.key)}">
-      <input type="checkbox" ${selected.has(i.id) ? "checked" : ""} ${busy || i.updated || i.moved ? "disabled" : ""}>
+      <input type="checkbox" aria-label="${esc(i.name)}" ${selected.has(i.id) ? "checked" : ""} ${busy || i.updated || i.moved ? "disabled" : ""}>
       ${iconHtml(i.path, i.kind, i.name)}
       <div style="min-width:0">
         <div class="name">${esc(i.name)}${i.major ? `<span class="tag">${L.major}</span>` : ""}${i.verified === false ? `<span class="tag">${L.unverified}</span>` : ""}</div>
@@ -518,8 +557,10 @@ function renderWelcome() {
   $("#w_go").onclick = async () => {
     const admin = $("#w_admin") && $("#w_admin").checked;
     try {
-      data = await api("/api/settings", { welcomed: true, daily_check: $("#w_daily").checked, auto_update: $("#w_nightly").checked });
-      if (admin) await api("/api/elevate", {});
+      const daily = $("#w_daily").checked, nightly = $("#w_nightly").checked;
+      data = await api("/api/settings", { welcomed: true, daily_check: daily, auto_update: nightly });
+      // senza controlli pianificati il programma non deve partire all'accensione
+      if (admin) await api("/api/elevate", { login: daily || nightly });
     } catch (e) { alert(e.message); }
     $("#welcome").innerHTML = "";
     render();
@@ -544,8 +585,9 @@ function render() {
     : data.cleaning ? `<span class="spin"></span>${L.cleaning}`
     : data.self && data.self.status === "updating" ? `<span class="spin"></span>${L.selfUpdating(esc(data.self.available || ""))}`
     : data.self && data.self.status === "restarting" ? `<span class="spin"></span>${L.selfRestarting}`
+    : data.stopping ? `<span class="spin"></span>${L.stopping}`
     : data.running ? L.updating
-    : data.scan_error ? L.error + esc(data.scan_error)
+    : data.scan_error ? esc(L.staleErr(data.scan_error, data.scanned_at ? ago(data.scanned_at) : ""))
     : todo.length === 0 ? `${L.allUpToDate} · ${ago(data.scanned_at)}`
     : `${L.available(todo.length)} · ${ago(data.scanned_at)}`;
 
@@ -554,8 +596,10 @@ function render() {
   $("#scan").disabled = busy;
   const n = selected.size;
   const nMain = todo.filter(i => selected.has(i.id)).length;
-  $("#go").disabled = busy || n === 0;
-  $("#go").textContent = n && n === todo.length && nMain === n ? L.updateAll : n ? L.updateN(n) : L.update;
+  const updatingApps = data.running && data.batch && !(data.self && data.self.status);
+  // durante un giro il pulsante diventa "Interrompi": finisce l'installazione in corso e salta le altre
+  $("#go").disabled = updatingApps ? !!data.stopping : (busy || n === 0);
+  $("#go").textContent = updatingApps ? L.interrupt : n && n === todo.length && nMain === n ? L.updateAll : n ? L.updateN(n) : L.update;
 
   if (data.version)
     $("#version").innerHTML = `${data.demo ? esc(L.demo) + " · " : ""}${L.version} ${esc(data.version)} · <a href="https://github.com/${esc(data.repo)}/blob/main/CHANGELOG.md" target="_blank" rel="noopener">${L.news}</a>`;
@@ -563,8 +607,10 @@ function render() {
   $("#pwdot").className = "dot" + (data.password ? " on" : "");
   $("#pwlabel").textContent = data.password ? L.pwSet : L.pwUnset;
   $("#elevate").style.display = data.password ? "none" : "";
+  const lh = $("#loginhint");
+  if (data.settings && !data.settings.login && !(data.settings.daily_check || data.settings.auto_update)) { lh.textContent = L.loginOffHint; lh.className = "hint"; }
 
-  const sig = JSON.stringify([lang, data.self && [data.self.available, data.self.status, selfLogOpen], busy, data.scanning, [...selected], [...openLogs], Object.keys(excluded()), (data.unchecked || []).length, (data.macos || []).join(), items.map(i => {
+  const sig = JSON.stringify([lang, data.stale, (data.scan_warnings || []).join(), (data.history || []).length, histOpen, data.self && [data.self.available, data.self.status, selfLogOpen], busy, data.scanning, [...selected], [...openLogs], Object.keys(excluded()), (data.unchecked || []).length, (data.macos || []).join(), items.map(i => {
     const j = data.jobs[i.id];
     return [i.id, i.updated, j?.status, openLogs.has(i.id) ? j?.log : ""];
   })]);
@@ -572,11 +618,14 @@ function render() {
   lastSig = sig;
 
   let html = selfBanner();
+  const warns = data.scan_warnings || [];
+  if (!data.scan_error && warns.length)
+    html += `<p class="warn-line">${warns.map(w => w === "windows_update" ? L.warnWU : L.warnSrc).filter((v, i, a) => a.indexOf(v) === i).join(" ")}</p>`;
   if (data.macos && data.macos.length) {
     html += `<div class="notice"><div><div class="name">${L.macos}</div><div class="meta">${data.macos.map(esc).join(" · ")}</div></div><button type="button" id="openSU">${L.openSettings}</button></div>`;
   }
   if (!main.length) {
-    html += data.scanning ? "" : `<div class="empty"><strong>${L.allUpToDate}</strong>${L.noneNeeded}</div>`;
+    html += data.scanning || data.scan_error ? "" : `<div class="empty"><strong>${L.allUpToDate}</strong>${L.noneNeeded}</div>`;
   } else {
     html += `<div class="bar"><label><input type="checkbox" id="all" ${todo.length && nMain === todo.length ? "checked" : ""} ${busy || !todo.length ? "disabled" : ""}> ${L.selectAll}</label><span>${nMain} ${L.of} ${todo.length}</span></div>`;
     const groups = [
@@ -614,19 +663,28 @@ function render() {
       <summary>${L.unchecked} · ${un.length}</summary>
       <p class="note">${L.uncheckedNote}</p><ul>`;
     for (const u of un) {
-      const q = encodeURIComponent(`${u.name} mac download`);
+      const q = encodeURIComponent(`${u.name} download Windows`);
       html += `<li><div class="row static">
         <span></span>${iconHtml(u.path, null, u.name)}
         <div style="min-width:0"><div class="name">${esc(u.name)}</div><div class="meta reason">${esc(u.version || L.unknownVersion)} · ${esc(L.reasons[u.reason] || u.reason)}</div></div>
-        <div class="status"><a class="act link" href="https://duckduckgo.com/?q=${q}" target="_blank" rel="noopener">${L.search}</a></div>
+        <div class="status">${u.token && !busy ? `<button type="button" class="act" data-retry="${esc(u.token)}">${L.retry}</button>` : ""}<a class="act link" href="https://duckduckgo.com/?q=${q}" target="_blank" rel="noopener">${L.search}</a></div>
       </div></li>`;
     }
     html += "</ul></details>";
   }
+  const hist = (data.history || []).slice().reverse();
+  if (hist.length && !data.scanning) {
+    html += `<details class="excluded hist" ${histOpen ? "open" : ""}><summary>${L.history} · ${hist.length}</summary><ul class="history">`;
+    for (const h of hist)
+      html += `<li><span>${esc(h.name)} ${esc(h.from || "")} → ${esc(h.to || "")}</span><span>${esc(L.res[h.result] || h.result)} · ${ago(h.at)}</span></li>`;
+    html += "</ul></details>";
+  }
   $("#list").innerHTML = html;
+  const hDet = $("#list details.hist");
+  if (hDet) hDet.addEventListener("toggle", () => { histOpen = hDet.open; });
   const unDet = $("#list details.unchecked");
   if (unDet) unDet.addEventListener("toggle", () => { unOpen = unDet.open; });
-  const det = $("#list details.excluded:not(.unchecked)");
+  const det = $("#list details.excluded:not(.unchecked):not(.hist)");
   if (det) det.addEventListener("toggle", () => { exOpen = det.open; });
 }
 
@@ -642,6 +700,18 @@ $("#list").addEventListener("click", async e => {
     if (e.target.checked) main.forEach(i => selected.add(i.id)); else main.forEach(i => selected.delete(i.id));
     return render();
   }
+  const d = e.target.closest("[data-details]");
+  if (d) { e.preventDefault(); const id = d.dataset.details; openLogs.has(id) ? openLogs.delete(id) : openLogs.add(id); return render(); }
+  const f = e.target.closest("[data-force]");
+  if (f) {
+    const it = data.items.find(i => i.id === f.dataset.force);
+    if (!confirm(L.forceConfirm(it ? it.name : ""))) return;
+    return act("/api/force", { id: f.dataset.force });
+  }
+  const dm = e.target.closest("[data-dismiss]");
+  if (dm) return act("/api/dismiss", { id: dm.dataset.dismiss });
+  const rt = e.target.closest("[data-retry]");
+  if (rt) return act("/api/retry", { token: rt.dataset.retry });
   const actEl = e.target.closest("[data-act]");
   if (actEl) {
     e.stopPropagation();
@@ -650,27 +720,28 @@ $("#list").addEventListener("click", async e => {
     const exclude = actEl.dataset.act === "exclude";
     const it = data.items.find(i => i.key === key);
     if (exclude && it) selected.delete(it.id);
-    data = await api("/api/exclude", { key, exclude, name: it?.name, path: it?.path, kind: it?.kind });
-    return render();
+    return act("/api/exclude", { key, exclude, name: it?.name, path: it?.path, kind: it?.kind });
   }
   const row = e.target.closest(".row");
   if (!row || row.classList.contains("static")) return;
   const id = row.dataset.id;
-  const job = data.jobs[id];
-  if (job && (job.status === "error" || e.target.closest(".status"))) {
-    openLogs.has(id) ? openLogs.delete(id) : openLogs.add(id);
-    return render();
-  }
+  if (e.target.closest(".status") && !e.target.closest("input")) return;
   const cb = row.querySelector("input");
   if (cb.disabled) return;
   selected.has(id) ? selected.delete(id) : selected.add(id);
   render();
 });
 
-$("#scan").onclick = async () => { firstLoad = true; data = await api("/api/scan", {}); render(); };
-$("#go").onclick = async () => {
-  try { data = await api("/api/update", { ids: [...selected] }); } catch (e) { alert(e.message); }
+// ogni azione mostra l'errore invece di fallire in silenzio
+async function act(path, body) {
+  try { data = await api(path, body); }
+  catch (err) { alert(L.actionFailed + (err.message === "Failed to fetch" ? L.goneTitle : err.message)); }
   render();
+}
+$("#scan").onclick = () => { firstLoad = true; return act("/api/scan", {}); };
+$("#go").onclick = () => {
+  if (data.running && data.batch) return act("/api/stop", {});
+  return act("/api/update", { ids: [...selected] });
 };
 
 $("#elevate").onclick = async () => {
@@ -690,15 +761,27 @@ async function poll() {
     startVersion = startVersion || data.version;
     // la lingua del Mac (dal server) prevale su quella del browser
     if (!langFromServer && data.lang) { setLang(data.lang); applyStatic(); langFromServer = true; }
+    // Esci dall'icona: il programma avvisa prima di chiudersi e la finestra si chiude con lui
+    if (data.quitting) { window.close(); return showGone(); }
     render();
     offline = 0;
+    $("#gone").innerHTML = "";
   } catch {
-    // il programma è stato chiuso (per esempio con Esci dall'icona vicino all'orologio)
+    // il programma non risponde più (chiuso con Esci o da Gestione attività): mai una finestra che
+    // sembra funzionare con dati vecchi
     offline++;
-    if (offline >= 3 && !(data.self && data.self.status === "restarting")) $("#sub").textContent = L.offline;
+    if (offline >= 2 && !(data.self && data.self.status === "restarting")) showGone();
   }
   const selfBusy = data.self && (data.self.status === "updating" || data.self.status === "restarting");
-  setTimeout(poll, data.running || selfBusy ? 500 : data.scanning ? 1000 : 5000);
+  setTimeout(poll, data.running || selfBusy ? 500 : data.scanning ? 1000 : 3000);
+}
+function showGone() {
+  if ($("#gone").innerHTML) return;
+  $("#gone").innerHTML = `<div class="gone" role="alertdialog" aria-labelledby="goneT"><div class="card">
+    <h2 id="goneT">${L.goneTitle}</h2><p>${L.goneText}</p>
+    <button type="button" class="primary" id="goneClose">${L.goneClose}</button></div></div>`;
+  $("#goneClose").onclick = () => window.close();
+  $("#goneClose").focus();
 }
 poll();
 </script>

@@ -1,6 +1,9 @@
+*.spec
+.DS_Store
+.playwright-cli/
+ISTRUZIONI-VM-TEST.md
+__pycache__/
 build/
 dist/
-*.spec
-__pycache__/
-.DS_Store
 linkedin/
+output/

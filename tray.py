@@ -66,8 +66,11 @@ def run(on_quit):
     badge = with_badge(plain)
 
     def quit_app(icon, _item):
-        icon.stop()
-        on_quit()
+        # mai a metà di un aggiornamento: in quel caso ci si chiude appena finisce
+        if on_quit():
+            icon.stop()
+        else:
+            server.notify("Aggiornamenti", server.t("quit_later"))
 
     menu = pystray.Menu(
         pystray.MenuItem(TEXT["open"], lambda i, _: open_window(), default=True),

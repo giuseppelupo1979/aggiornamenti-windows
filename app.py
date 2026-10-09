@@ -13,6 +13,7 @@ import shutil
 import subprocess
 import sys
 import time
+import urllib.error
 import urllib.request
 
 import server
@@ -56,11 +57,15 @@ def count_processes():
 
 
 def quit_running(port):
+    """Chiede alla copia in esecuzione di chiudersi. False se sta aggiornando (risponde 409)."""
     try:
         urllib.request.urlopen(urllib.request.Request(f"http://127.0.0.1:{port}/api/quit", data=b"{}",
                                                       method="POST"), timeout=3)
+        return True
+    except urllib.error.HTTPError as e:
+        return e.code != 409
     except Exception:
-        pass
+        return True
 
 
 def edge_path():
@@ -104,8 +109,10 @@ def stop_installed_copies():
     """Chiude ogni copia in esecuzione dell'exe installato (finestra, server, modalità demo):
     Windows non permette di sovrascrivere un programma aperto."""
     for port in (server.PORT, 8766):
-        if up(port):
-            quit_running(port)
+        if up(port) and not quit_running(port):
+            # c'è un aggiornamento in corso: non lo si interrompe sostituendo il programma
+            raise RuntimeError(server.t("busy_install"))
+    time.sleep(2)
     target = INSTALLED_EXE.replace("'", "''")
     ps(f"Get-Process | Where-Object {{ $_.Path -eq '{target}' -and $_.Id -ne {os.getpid()} }} | Stop-Process -Force")
 
@@ -147,7 +154,7 @@ def uninstall():
     import winreg
     quit_running(server.PORT)
     server.run(["taskkill", "/F", "/IM", "Aggiornamenti.exe", "/FI", f"PID ne {os.getpid()}"], timeout=30)
-    if server.login_enabled():
+    if server.admin_task_exists():
         # l'attività è stata creata con i privilegi: per toglierla serve la stessa conferma di Windows
         import ctypes
         ctypes.windll.shell32.ShellExecuteW(None, "runas", "schtasks.exe", f"/Delete /TN {server.TASK_NAME} /F", None, 0)
@@ -189,7 +196,7 @@ def main():
             cmd.append("--demo")
         started = False
         # con l'avvio all'accesso attivo si riparte dall'attività pianificata (privilegi senza richiesta)
-        if not demo and server.login_enabled():
+        if not demo and server.admin_task_exists():
             before = count_processes()
             server.run(["schtasks", "/Run", "/TN", server.TASK_NAME], timeout=30)
             # se Windows non avvia davvero l'attività (es. impostazioni vecchie a batteria) lo si vede in

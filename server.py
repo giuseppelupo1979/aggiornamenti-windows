@@ -26,7 +26,7 @@ import urllib.request
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import urlparse
 
-VERSION = "0.2.2"   # tenere allineata con CHANGELOG.md
+VERSION = "0.3.0"   # tenere allineata con CHANGELOG.md
 # --demo: dati finti, cartelle temporanee, nessuna modifica al sistema (per prove e screenshot)
 DEMO = "--demo" in sys.argv
 HOST = "127.0.0.1"
@@ -96,6 +96,18 @@ MESSAGES = {
     "closing": ("Chiudo {x}",) * 2 + ("Quitting {x}",) * 2,
     "unsaved": ("C'è un documento non salvato ({x}): salvalo o chiudilo, poi riprova. Non lo chiudo per non farti perdere il lavoro.",) * 2
                + ("There's an unsaved document ({x}): save or close it, then try again. It wasn't closed so you don't lose your work.",) * 2,
+    "postponed_open": ("{x} è aperto: rimandato al prossimo giro per non chiuderlo mentre lo usi.",) * 2
+                      + ("{x} is open: postponed to the next run so it isn't closed while you use it.",) * 2,
+    "reopen_failed": ("Aggiornato, ma non sono riuscito a riaprirlo: aprilo tu dal menu Start ({x}).",) * 2
+                     + ("Updated, but it couldn't be reopened: open it from the Start menu ({x}).",) * 2,
+    "quit_later": ("Aggiornamento in corso: Aggiornamenti si chiuderà appena finisce.",) * 2
+                  + ("Update in progress: Aggiornamenti will quit as soon as it finishes.",) * 2,
+    "bad_download": ("Il file scaricato non corrisponde a quello pubblicato (controllo SHA-256): aggiornamento annullato, la versione in uso resta invariata.",) * 2
+                    + ("The downloaded file doesn't match the published one (SHA-256 check): update cancelled, the current version stays.",) * 2,
+    "task_failed": ("Windows non ha permesso di modificare l'avvio di Aggiornamenti: riprova o controlla l'Utilità di pianificazione.",) * 2
+                   + ("Windows didn't allow changing how Aggiornamenti starts: try again or check Task Scheduler.",) * 2,
+    "busy_install": ("È in corso un aggiornamento: aspetta che finisca, poi riapri il file scaricato.",) * 2
+                    + ("An update is in progress: wait for it to finish, then open the downloaded file again.",) * 2,
     "need_admin": ("Questo aggiornamento richiede i privilegi di amministratore: attivali in basso nella pagina.",) * 2
                   + ("This update needs administrator rights: turn them on at the bottom of the page.",) * 2,
 }
@@ -111,12 +123,15 @@ state = {
     "scanning": False, "scanned_at": None, "scan_error": None,
     "items": [], "jobs": {}, "running": False, "batch": None,
     "unchecked": [], "macos": [], "cleaning": False,
+    "scan_warnings": [], "stale": False, "stop": False, "quit_after": False,
     "self": {"latest": None, "url": None, "notes": "", "checked_at": 0, "status": None, "log": ""},
 }
 
 
 def log_line(*parts):
     try:
+        if os.path.exists(LOG_FILE) and os.path.getsize(LOG_FILE) > 1024 * 1024:
+            os.replace(LOG_FILE, LOG_FILE + ".1")   # rotazione: al massimo ~2 MB di registro
         with open(LOG_FILE, "a", encoding="utf-8") as f:
             f.write(time.strftime("%Y-%m-%d %H:%M:%S ") + " ".join(str(p) for p in parts) + "\n")
     except Exception:
@@ -164,6 +179,10 @@ def run_stream(cmd, on_line, timeout=3600):
                 if line.strip():
                     out.append(line)
                     on_line(line)
+        if buf.strip():   # ultimo pezzo senza a capo finale: spesso è proprio il messaggio d'errore
+            line = decode(buf).rstrip()
+            out.append(line)
+            on_line(line)
         return p.wait(), "\n".join(out)
     finally:
         timer.cancel()
@@ -215,23 +234,40 @@ def item_key(item):
     return item["id"]
 
 
+# un solo lock per ogni lettura-modifica-scrittura dei file di impostazioni, esclusioni e storico
+files_lock = threading.RLock()
+
+
 def _load(path, default):
     try:
         with open(path, encoding="utf-8") as f:
-            return {**default, **json.load(f)} if isinstance(default, dict) and default else json.load(f)
+            data = json.load(f)
+        if not isinstance(data, type(default)):
+            raise ValueError("formato inatteso")
+        return {**default, **data} if isinstance(default, dict) else data
     except Exception:
-        return dict(default)
+        return type(default)(default)
 
 
 def _save(path, data):
-    tmp = path + ".tmp"
+    tmp = f"{path}.{os.getpid()}.{threading.get_ident()}.tmp"   # mai due scritture sullo stesso file temporaneo
     with open(tmp, "w", encoding="utf-8") as f:
         json.dump(data, f, ensure_ascii=False, indent=2)
     os.replace(tmp, path)
 
 
+def update_settings(change):
+    """Modifica atomica delle impostazioni: change(s) riceve il dizionario e lo modifica."""
+    with files_lock:
+        s = load_settings()
+        change(s)
+        save_settings(s)
+        return s
+
+
 def load_excluded():
-    return _load(EXCLUDED_FILE, {})
+    with files_lock:
+        return _load(EXCLUDED_FILE, {})
 
 
 def save_excluded(data):
@@ -247,7 +283,24 @@ DEFAULT_SETTINGS = {
 
 
 def load_settings():
-    return _load(SETTINGS_FILE, DEFAULT_SETTINGS)
+    with files_lock:
+        return _load(SETTINGS_FILE, DEFAULT_SETTINGS)
+
+
+HISTORY_FILE = os.path.join(SUPPORT, "storico.json")
+
+
+def add_history(entry):
+    """Storico persistente degli aggiornamenti (ultimi 300)."""
+    with files_lock:
+        h = _load(HISTORY_FILE, [])
+        h.append({"at": time.time(), **entry})
+        _save(HISTORY_FILE, h[-300:])
+
+
+def load_history():
+    with files_lock:
+        return _load(HISTORY_FILE, [])
 
 
 def save_settings(data):
@@ -265,42 +318,81 @@ def launch_command():
     return exe, os.path.join(ROOT, "server.py")
 
 
+_task = {"exists": False, "login": False, "read": False}
+
+
+def refresh_task():
+    """Legge una volta (e dopo ogni modifica) se esiste l'attività con i privilegi e se parte all'accesso."""
+    if DEMO:
+        _task.update(exists=False, login=False, read=True)
+        return
+    try:
+        rc, out = powershell(f"$t=Get-ScheduledTask -TaskName '{TASK_NAME}' -ErrorAction SilentlyContinue;"
+                             "if ($t) { 'TASK'; if (($t.Triggers | Measure-Object).Count -gt 0) { 'LOGIN' } }", timeout=60)
+        _task.update(exists="TASK" in out, login="LOGIN" in out, read=True)
+    except Exception as e:
+        log_line("lettura attività", e)
+
+
+def admin_task_exists():
+    """C'è l'attività che avvia il programma con i privilegi senza la richiesta di Windows?"""
+    if not _task["read"]:
+        refresh_task()
+    return _task["exists"]
+
+
 def login_enabled():
-    rc, _ = run(["schtasks", "/Query", "/TN", TASK_NAME], timeout=30)
-    return rc == 0
+    """Il programma parte da solo all'accensione?"""
+    if not _task["read"]:
+        refresh_task()
+    return _task["login"]
 
 
-def set_login(enabled):
-    """Attività pianificata all'accesso con privilegi elevati: avvio senza finestre né richieste UAC.
-    Crearla richiede di essere già amministratore (lo si ottiene una volta con elevate())."""
+def set_login(enabled, keep_task=True):
+    """Crea o modifica l'attività con i privilegi elevati. enabled=True: parte anche all'accesso;
+    False: resta solo come modo per avere i privilegi senza richiesta (il programma parte solo quando
+    lo apri tu). keep_task=False la elimina del tutto. Restituisce True solo se Windows conferma.
+    Modificarla richiede di essere già amministratore."""
     if DEMO:
         return True
-    if not enabled:
-        run(["schtasks", "/Delete", "/TN", TASK_NAME, "/F"], timeout=30)
-        return True
-    exe, arg = launch_command()
     q = lambda x: x.replace("'", "''")
+    if not keep_task:
+        rc, out = powershell(f"try {{ Unregister-ScheduledTask -TaskName '{TASK_NAME}' -Confirm:$false -ErrorAction Stop }}"
+                             " catch { Write-Output $_.Exception.Message; exit 1 }", timeout=60)
+        log_line("rimozione attività", rc, out.strip())
+        refresh_task()
+        return rc == 0 and not _task["exists"]
+    exe, arg = launch_command()
     argument = arg if FROZEN else f'"{arg}"'
     # Register-ScheduledTask invece di schtasks: le impostazioni predefinite di schtasks impediscono
     # l'avvio a batteria, fermano il programma quando il portatile passa alla batteria e lo uccidono
     # dopo 3 giorni. Qui: parte sempre, nessun limite di durata, mai due copie insieme.
+    # ErrorAction Stop + catch: un errore a metà deve dare codice 1 (PowerShell altrimenti restituisce 0)
     script = (
+        "$ErrorActionPreference='Stop'; try {"
         f"$a=New-ScheduledTaskAction -Execute '{q(exe)}' -Argument '{q(argument)}' -WorkingDirectory '{q(ROOT)}';"
         "$u=$env:USERDOMAIN+'\\'+$env:USERNAME;"
-        "$t=New-ScheduledTaskTrigger -AtLogOn -User $u;"
         "$p=New-ScheduledTaskPrincipal -UserId $u -LogonType Interactive -RunLevel Highest;"
         "$s=New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries "
         "-ExecutionTimeLimit ([TimeSpan]::Zero) -MultipleInstances IgnoreNew -StartWhenAvailable;"
-        f"Register-ScheduledTask -TaskName '{TASK_NAME}' -Action $a -Trigger $t -Principal $p -Settings $s -Force | Out-Null")
+        + ("$t=New-ScheduledTaskTrigger -AtLogOn -User $u;"
+           f"Register-ScheduledTask -TaskName '{TASK_NAME}' -Action $a -Trigger $t -Principal $p -Settings $s -Force | Out-Null"
+           if enabled else
+           # registrare di nuovo senza trigger non cancella quelli esistenti: si elimina e si ricrea
+           f"Unregister-ScheduledTask -TaskName '{TASK_NAME}' -Confirm:$false -ErrorAction SilentlyContinue;"
+           f"Register-ScheduledTask -TaskName '{TASK_NAME}' -Action $a -Principal $p -Settings $s | Out-Null")
+        + " } catch { Write-Output $_.Exception.Message; exit 1 }")
     rc, out = powershell(script, timeout=60)
-    log_line("attività all'accesso", rc, out.strip())
-    return rc == 0
+    log_line("attività", "con avvio all'accesso" if enabled else "solo privilegi", rc, out.strip())
+    refresh_task()
+    return rc == 0 and _task["exists"] and _task["login"] == bool(enabled)
 
 
-def elevate_and_enable_login():
-    """Riavvia il server come amministratore (una richiesta UAC) e crea l'attività all'accesso."""
+def elevate_and_configure(login):
+    """Riavvia il server come amministratore (una richiesta di Windows) e configura l'attività."""
     exe, arg = launch_command()
-    args = f"{arg} --enable-login" if FROZEN else f'"{arg}" --enable-login'
+    flag = "--task-login" if login else "--task-nologin"
+    args = f"{arg} {flag}" if FROZEN else f'"{arg}" {flag}'
     ctypes.windll.shell32.ShellExecuteW(None, "runas", exe, args, ROOT, 0)
 
 
@@ -327,31 +419,46 @@ def notify(title, message):
 
 # ---------------------------------------------------------------- winget
 
+KNOWN_SOURCES = {"winget", "msstore"}
+SUMMARY = re.compile(r"^\d+\s+(aggiornament|pacchett|upgrade|package|update)", re.I)
+
+
 def parse_table(text):
-    """Legge le tabelle a colonne fisse di winget. Restituisce una lista di dict con chiavi
-    name, id, version, available, source (vuote se la colonna manca). Indipendente dalla lingua:
-    usa la posizione delle colonne, non i titoli."""
+    """Legge le tabelle a colonne fisse di winget e restituisce dict con name, id, version, available,
+    source (vuote se la colonna manca). Indipendente dalla lingua: usa la posizione delle colonne.
+    Con quattro colonne la quarta può essere "Disponibile" (upgrade) o "Origine" (list): lo si
+    capisce dai valori. Una tabella finisce alla prima riga vuota o alla riga di riepilogo."""
     lines = [l.split("\r")[-1].rstrip() for l in text.replace("\r\n", "\n").split("\n")]
     rows = []
     i = 0
     while i < len(lines):
         if re.fullmatch(r"-{20,}", lines[i].strip()) and i > 0:
-            header = lines[i - 1]
-            starts = [m.start() for m in re.finditer(r"\S+", header)]
-            keys = ["name", "id", "version", "available", "source"][:len(starts)]
+            starts = [m.start() for m in re.finditer(r"\S+", lines[i - 1])]
             i += 1
-            while i < len(lines) and lines[i].strip() and not re.match(r"^\d+ \S", lines[i]):
+            raw = []
+            while i < len(lines) and lines[i].strip() and not SUMMARY.match(lines[i]):
                 line = lines[i]
                 vals = []
-                for k, s in enumerate(starts):
+                for k, st in enumerate(starts):
                     e = starts[k + 1] if k + 1 < len(starts) else None
-                    vals.append(line[s:e].strip() if len(line) > s else "")
+                    vals.append(line[st:e].strip() if len(line) > st else "")
+                raw.append(vals)
+                i += 1
+            n = len(starts)
+            if n >= 5:
+                keys = ["name", "id", "version", "available", "source"]
+            elif n == 4:
+                fourth = [v[3].lower() for v in raw if v[3]]
+                as_source = fourth and sum(v in KNOWN_SOURCES for v in fourth) > len(fourth) / 2
+                keys = ["name", "id", "version", "source" if as_source else "available"]
+            else:
+                keys = ["name", "id", "version"][:n]
+            for vals in raw:
                 row = dict(zip(keys, vals))
                 for k in ("name", "id", "version", "available", "source"):
                     row.setdefault(k, "")
                 if row["id"]:
                     rows.append(row)
-                i += 1
         i += 1
     return rows
 
@@ -516,25 +623,40 @@ UNSAVED = re.compile(r"^\*|\*\s|\s\*$|●|\(modificato\)|\(modified\)", re.I)
 
 
 def close_apps(procs, log):
-    """Chiude con garbo ogni finestra del programma (anche i dialoghi, per esempio l'aggiornatore
-    interno di Notepad++). Se dopo 10 secondi resta aperto: lo si chiude d'autorità, tranne quando un
-    titolo indica un documento non salvato, che non si rischia di perdere. Restituisce True se chiuso."""
+    """Chiede con garbo a ogni finestra del programma di chiudersi (anche ai dialoghi, per esempio
+    l'aggiornatore interno di Notepad++) e aspetta fino a 10 secondi. Non forza mai: la chiusura
+    d'autorità è una scelta esplicita dell'utente (force_close). Restituisce:
+      "closed"  chiuso;  "unsaved"  rimasto aperto con un documento non salvato o una domanda di
+      salvataggio;  "open"  rimasto aperto (anche quando non è possibile ispezionarne le finestre)."""
     pids = [p["id"] for p in procs]
-    before = set(window_titles(pids, close=True))
+    try:
+        before = set(window_titles(pids, close=True))
+    except Exception as e:
+        log_line("chiusura finestre", e)
+        return "open"
     for _ in range(20):
         time.sleep(0.5)
         if not any(pid_alive(p) for p in pids):
-            return True
-    alive = [p for p in pids if pid_alive(p)]
-    titles = window_titles(alive)
+            return "closed"
+    try:
+        titles = window_titles([p for p in pids if pid_alive(p)])
+    except Exception:
+        return "open"
     # documento non salvato: asterisco o pallino nel titolo, oppure una finestra comparsa dopo la
     # richiesta di chiusura (la domanda "Vuoi salvare le modifiche?" di Word e simili)
-    unsaved = [t for t in titles if UNSAVED.search(t)] + [t for t in titles if t and t not in before]
+    unsaved = [x for x in titles if UNSAVED.search(x)] + [x for x in titles if x and x not in before]
     if unsaved:
         log(t("unsaved", x=unsaved[0]))
-        return False
-    powershell("Stop-Process -Id " + ",".join(str(p) for p in alive) + " -Force -ErrorAction SilentlyContinue", timeout=30)
-    time.sleep(1)
+        return "unsaved"
+    return "open"
+
+
+def force_close(procs):
+    """Chiusura d'autorità, solo su richiesta esplicita dell'utente."""
+    alive = [p["id"] for p in procs if pid_alive(p["id"])]
+    if alive:
+        powershell("Stop-Process -Id " + ",".join(str(p) for p in alive) + " -Force -ErrorAction SilentlyContinue", timeout=30)
+        time.sleep(1)
     return not any(pid_alive(p) for p in alive)
 
 
@@ -551,16 +673,39 @@ def reopen(paths):
             subprocess.Popen(["explorer.exe", p], creationflags=NO_WINDOW)
 
 
+class ScanError(Exception):
+    pass
+
+
+# risposte di winget che significano "nessun risultato", non "errore"
+NOTHING = re.compile(r"nessun (aggiornamento|pacchetto)|non sono disponibili aggiornamenti|"
+                     r"no (available )?upgrades?|no installed package|no applicable", re.I)
+
+
+def winget_query(args):
+    """Esegue winget e restituisce (righe, None) oppure (righe, errore). Un codice d'uscita diverso da
+    zero senza tabella e senza una risposta "nessun risultato" è un errore, non una lista vuota."""
+    try:
+        rc, out = run([WINGET] + args + WG_COMMON, timeout=900)
+    except Exception as e:
+        return [], str(e)
+    rows = parse_table(out)
+    if rows or rc == 0 or NOTHING.search(out):
+        return rows, None
+    lines = [l.strip() for l in out.splitlines() if l.strip() and not re.fullmatch(r"[-\\|/ ]+", l.strip())]
+    return [], (lines[-1] if lines else f"winget: codice {rc}")
+
+
 def scan_winget():
-    rc, out = run([WINGET, "upgrade", "--include-unknown"] + WG_COMMON, timeout=900)
-    upgrades = parse_table(out)
+    upgrades, err_all = winget_query(["upgrade", "--include-unknown"])
     # interrogato su tutte le sorgenti winget a volte omette pacchetti (es. Microsoft 365 Apps)
     # che elenca sulla sola sorgente winget: si uniscono i due risultati
-    rc, out_w = run([WINGET, "upgrade", "--include-unknown", "--source", "winget"] + WG_COMMON, timeout=900)
+    only_winget, err_w = winget_query(["upgrade", "--include-unknown", "--source", "winget"])
+    if err_all and err_w:
+        raise ScanError(err_w)   # nessuna delle due interrogazioni ha risposto: niente "tutto aggiornato"
     seen_ids = {r["id"] for r in upgrades}
-    upgrades += [{**r, "source": "winget"} for r in parse_table(out_w) if r["id"] not in seen_ids]
-    rc, out_list = run([WINGET, "list"] + WG_COMMON, timeout=900)
-    installed = parse_table(out_list)
+    upgrades += [{**r, "source": "winget"} for r in only_winget if r["id"] not in seen_ids]
+    installed, err_list = winget_query(["list"])
     full = winget_full_ids()
     load_arp()
 
@@ -579,10 +724,12 @@ def scan_winget():
         if pid in SELF_UPDATING:
             continue
         b = blocked.get(pid or "")
-        if b and b.get("version") == r["version"]:
-            # già fallito per un motivo che winget non può superare: si mostra tra le non controllate
+        expired = b and b.get("reason") != "tech_diff" and time.time() - b.get("at", 0) > UNUPGRADABLE_DAYS * 86400
+        if b and b.get("version") == r["version"] and not expired:
+            # già fallito per un motivo che winget non può superare: si mostra tra le non controllate,
+            # con "Riprova" (e i casi forse temporanei scadono da soli dopo una settimana)
             skipped.append({"name": TRUNC.sub("", r["name"]).strip(), "version": r["version"],
-                            "reason": b["reason"], "path": None})
+                            "reason": b["reason"], "path": None, "token": pid})
             continue
         unknown = r["version"].startswith("<") or r["version"].lower() in ("unknown", "sconosciuto")
         source = r.get("source") or "winget"
@@ -624,16 +771,21 @@ def scan_winget():
     for x in items + unchecked:
         x["path"] = icon_ids.get(x.pop("icon_src", "") or "")
     unchecked.sort(key=lambda u: u["name"].lower())
-    return items, unchecked
+    # avvisi non bloccanti: una fonte su due non ha risposto, o l'elenco completo non è disponibile
+    warnings = [e for e in (err_all, err_list) if e]
+    return items, unchecked, warnings
 
 
 def scan_windows_update():
     """Aggiornamenti di Windows in attesa (solo lettura, tramite l'API di Windows Update)."""
-    rc, out = powershell("try { $s=(New-Object -ComObject Microsoft.Update.Session).CreateUpdateSearcher();"
-                         "$r=$s.Search('IsInstalled=0 and IsHidden=0');"
-                         "$r.Updates | ForEach-Object { 'WU:' + $_.Title } } catch { exit 1 }", timeout=300)
-    if rc != 0:
-        return []
+    try:
+        rc, out = powershell("try { $s=(New-Object -ComObject Microsoft.Update.Session).CreateUpdateSearcher();"
+                             "$r=$s.Search('IsInstalled=0 and IsHidden=0');"
+                             "$r.Updates | ForEach-Object { 'WU:' + $_.Title }; 'WU-OK' } catch { exit 1 }", timeout=300)
+    except Exception:
+        return None
+    if rc != 0 or "WU-OK" not in out:
+        return None   # None = non verificato, diverso da "nessun aggiornamento"
     return [l.strip()[3:] for l in out.splitlines() if l.strip().startswith("WU:")][:5]
 
 
@@ -682,20 +834,23 @@ def do_scan(force_self_check=False):
     try:
         with cf.ThreadPoolExecutor(2) as ex:
             f_wu = ex.submit(scan_windows_update)
-            items, unchecked = scan_winget()
+            items, unchecked, warnings = scan_winget()
             wu = f_wu.result()
         items.sort(key=lambda i: (i.get("system", False), i["name"].lower()))
         with lock:
-            state.update(items=items, unchecked=unchecked, macos=wu, scan_error=None)
+            state.update(items=items, unchecked=unchecked, macos=wu or [], scan_error=None,
+                         scan_warnings=warnings + ([] if wu is not None else ["windows_update"]),
+                         scanned_at=time.time(), stale=False)
             state["jobs"] = {k: v for k, v in state["jobs"].items() if v["status"] == "running"}
     except Exception as e:
+        # si tiene l'ultimo elenco valido, segnalato come non aggiornato: mai "tutto aggiornato" per errore
         log_line("scansione", e)
         with lock:
             state["scan_error"] = str(e)
+            state["stale"] = True
     finally:
         with lock:
             state["scanning"] = False
-            state["scanned_at"] = time.time()
 
 
 # ---------------------------------------------------------------- aggiornamento
@@ -735,85 +890,104 @@ def winget_progress(jid):
     return on_line
 
 
-def update_one(item):
+UNUPGRADABLE_DAYS = 7   # "non trovato" e "non compatibile" possono essere temporanei: si riprova dopo una settimana
+
+
+def record_unupgradable(token, reason, version):
+    def change(st):
+        st.setdefault("unupgradable", {})[token] = {"reason": reason, "version": version, "at": time.time()}
+    update_settings(change)
+
+
+def update_one(item, mode="manual"):
+    """Aggiorna un programma. mode: "manual" (dalla pagina), "auto" (di notte: mai chiudere nulla),
+    "force" (l'utente ha chiesto di chiudere d'autorità il programma aperto).
+    Qualunque errore chiude il job con un esito: il programma non resta mai bloccato su "in corso"."""
     if DEMO:
         return demo_update(item)
     jid = item["id"]
     lines = []
 
     def log(text):
-        if text.strip():
+        if text and text.strip():
             lines.append(text.rstrip())
             with lock:
                 state["jobs"][jid]["log"] = "\n".join(lines)[-6000:]
 
-    ok, reason = False, None
-    reopen_paths = []
-    procs = running_in(item.get("location", ""))
-    if procs:
-        set_progress(jid, phase="closing", pct=1)
-        log(t("closing", x=item["name"]))
-        if close_apps(procs, log):
+    status, reason, reopen_paths = "error", None, []
+    try:
+        procs = running_in(item.get("location", ""))
+        if procs and mode == "auto":
+            log(t("postponed_open", x=item["name"]))   # di notte un programma aperto si rimanda, sempre
+            status = "postponed"
+            return
+        if procs:
+            set_progress(jid, phase="closing", pct=1)
+            log(t("closing", x=item["name"]))
+            result = "closed" if mode == "force" and force_close(procs) else (
+                     "open" if mode == "force" else close_apps(procs, log))
+            if result != "closed":
+                if result == "open":
+                    log(t("app_open", x=item["name"]))
+                status = "blocked"   # la pagina offre "Forza chiusura" o "Rimanda"
+                return
             icon = (arp_for(item["name"]) or {}).get("icon", "").lower()
             # si riaprono le finestre e l'exe principale (per i programmi dell'area di notifica)
             reopen_paths = sorted({p["path"] for p in procs if p["window"] or p["path"].lower() == icon})
-        else:
-            if not lines or not lines[-1].startswith(t("unsaved", x="")[:12]):
-                log(t("app_open", x=item["name"]))   # il messaggio sul documento non salvato è già più preciso
-            item = {**item, "token": None, "_blocked": True}
-    if item.get("_blocked"):
-        pass
-    elif not item.get("token"):
-        log(t("id_cut", x=item["id"]))
-    else:
+        if not item.get("token"):
+            log(t("id_cut", x=item["id"]))
+            return
+        # versione e sorgente fissate: si installa esattamente ciò che l'utente ha visto e approvato
+        source = "msstore" if item.get("source") == "msstore" else "winget"
         cmd = [WINGET, "upgrade", "--id", item["token"], "--exact", "--silent", "--include-unknown",
-               "--accept-package-agreements"] + WG_COMMON
-        if item.get("source") == "msstore":
-            cmd += ["--source", "msstore"]
+               "--accept-package-agreements", "--source", source] + WG_COMMON
+        if source == "winget" and item.get("latest") and vparts(item["latest"]):
+            cmd += ["--version", item["latest"]]
         on_line = winget_progress(jid)
-        try:
-            rc, _ = run_stream(cmd, lambda l: (log(l), on_line(l)))
-            ok = rc == 0
-            text = "\n".join(lines)
-            if not ok and NOT_FOUND.search(text) and "--source" not in cmd:
-                # winget a volte elenca un aggiornamento e poi non trova l'app: si riprova sulla sola sorgente winget
-                lines.clear()
-                rc, _ = run_stream(cmd + ["--source", "winget"], lambda l: (log(l), on_line(l)))
-                ok = rc == 0
-                text = "\n".join(lines)
-            reason = None if ok else ("tech_diff" if TECH_DIFF.search(text) else
-                                      "not_found" if NOT_FOUND.search(text) else
-                                      "not_applicable" if NOT_APPLICABLE.search(text) else None)
-            if reason:
-                # non si ripropone finché la versione installata resta questa
-                s = load_settings()
-                s.setdefault("unupgradable", {})[item["token"]] = {"reason": reason, "version": item["installed"]}
-                save_settings(s)
-            elif not ok and re.search(r"codice di uscita|exit code", text, re.I):
-                running = app_running(item["name"])
-                log(t("app_open", x=running) if running else t("installer_failed"))
+        rc, _ = run_stream(cmd, lambda l: (log(l), on_line(l)))
+        text = "\n".join(lines)
+        if rc == 0:
+            status = "done"
+            return
+        reason = ("tech_diff" if TECH_DIFF.search(text) else "not_found" if NOT_FOUND.search(text)
+                  else "not_applicable" if NOT_APPLICABLE.search(text) else None)
+        if reason:
+            record_unupgradable(item["token"], reason, item["installed"])
             if reason == "tech_diff":
                 log(t("tech_diff"))
-            if not ok and not is_admin() and re.search(r"amministrator|administrator|0x80070005|elevat", "\n".join(lines), re.I):
-                log(t("need_admin"))
-        except Exception as e:
-            log(str(e))
-    if reopen_paths:
-        set_progress(jid, phase="reopening", pct=98)
-        reopen(reopen_paths)
-    with lock:
-        if ok:
-            state["jobs"][jid]["status"] = "done"
-            state["items"] = [{**i, "updated": True} if i["id"] == jid else i for i in state["items"]]
-        elif reason:
-            # non è un errore da correggere ma un limite di winget: si sposta subito tra le non controllate
-            state["jobs"][jid]["status"] = "moved"
-            state["items"] = [{**i, "moved": True} if i["id"] == jid else i for i in state["items"]]
-            state["unchecked"] = sorted(state["unchecked"] + [{"name": item["name"], "version": item["installed"],
-                                                               "reason": reason, "path": None}],
-                                        key=lambda u: u["name"].lower())
-        else:
-            state["jobs"][jid]["status"] = "error"
+            status = "moved"
+        elif re.search(r"codice di uscita|exit code", text, re.I):
+            running = app_running(item["name"])
+            log(t("app_open", x=running) if running else t("installer_failed"))
+        if rc != 0 and not is_admin() and re.search(r"amministrator|administrator|0x80070005|elevat", text, re.I):
+            log(t("need_admin"))
+    except Exception as e:
+        log_line("aggiornamento", jid, e)
+        log(str(e))
+        status = "error"
+    finally:
+        if reopen_paths:
+            set_progress(jid, phase="reopening", pct=98)
+            try:
+                reopen(reopen_paths)
+            except Exception as e:   # l'aggiornamento è riuscito anche se la riapertura no
+                log(t("reopen_failed", x=str(e)))
+        with lock:
+            state["jobs"][jid]["status"] = status
+            if status == "done":
+                state["items"] = [{**i, "updated": True} if i["id"] == jid else i for i in state["items"]]
+            elif status == "moved":
+                # non è un errore da correggere ma un limite di winget: si sposta subito tra le non controllate
+                state["items"] = [{**i, "moved": True} if i["id"] == jid else i for i in state["items"]]
+                state["unchecked"] = sorted(state["unchecked"] + [{"name": item["name"], "version": item["installed"],
+                                                                   "reason": reason, "path": item.get("path"),
+                                                                   "token": item["token"]}],
+                                            key=lambda u: u["name"].lower())
+        try:
+            add_history({"name": item["name"], "from": item.get("installed"), "to": item.get("latest"),
+                         "result": status, "mode": mode})
+        except Exception:
+            pass
 
 
 def app_running(name):
@@ -863,30 +1037,63 @@ def cleanup():
                     freed += size - (dir_size(d) if os.path.exists(d) else 0)
     except Exception as e:
         log_line("pulizia", e)
-    s = load_settings()
-    s["last_cleanup"] = {"at": time.time(), "freed": freed}
-    save_settings(s)
-    with lock:
-        state["cleaning"] = False
+    try:
+        update_settings(lambda st: st.update(last_cleanup={"at": time.time(), "freed": freed}))
+    finally:
+        with lock:
+            state["cleaning"] = False
     return freed
 
 
-def do_updates(ids):
-    with lock:
-        todo = [i for i in state["items"] if i["id"] in ids and not i.get("updated") and not i.get("moved")]
-        for i in todo:
-            state["jobs"][i["id"]] = {"status": "queued", "log": "", "phase": None, "pct": None, "bytes": None, "total": None}
-        state["batch"] = {"total": len(todo), "done": 0}
-    for item in todo:
+def do_updates(ids, mode="manual"):
+    """Esegue la coda. Lo stato "in corso" viene sempre liberato, anche dopo un errore inatteso.
+    Con "Interrompi" si finisce l'installazione in corso e le successive tornano da fare."""
+    try:
         with lock:
-            state["jobs"][item["id"]].update(status="running", phase="prepare", pct=0)
-        update_one(item)
+            state["stop"] = False
+            todo = [i for i in state["items"] if i["id"] in ids and not i.get("updated") and not i.get("moved")]
+            for i in todo:
+                state["jobs"][i["id"]] = {"status": "queued", "log": "", "phase": None, "pct": None,
+                                          "bytes": None, "total": None}
+            state["batch"] = {"total": len(todo), "done": 0}
+        for item in todo:
+            with lock:
+                if state["stop"]:
+                    for rest in todo[todo.index(item):]:
+                        state["jobs"].pop(rest["id"], None)   # torna tra gli aggiornamenti da fare
+                    break
+                state["jobs"][item["id"]].update(status="running", phase="prepare", pct=0)
+            try:
+                update_one(item, mode)
+            except Exception as e:
+                log_line("coda", item["id"], e)
+                with lock:
+                    state["jobs"][item["id"]]["status"] = "error"
+            with lock:
+                state["batch"]["done"] += 1
+        if todo:
+            try:
+                cleanup()
+            except Exception as e:
+                log_line("pulizia", e)
+    finally:
         with lock:
-            state["batch"]["done"] += 1
-    if todo:
-        cleanup()
+            state["running"] = False
+            state["stop"] = False
+            quit_after = state["quit_after"]
+        if quit_after:   # "Esci" chiesto durante un aggiornamento: ci si chiude ora che è finito
+            os._exit(0)
+
+
+def request_quit():
+    """Uscita sicura: se un aggiornamento è in corso si esce alla fine, mai a metà. True se esce ora."""
     with lock:
-        state["running"] = False
+        if state["running"]:
+            state["quit_after"] = True
+            return False
+        state["quitting"] = True   # la finestra lo vede e si chiude da sola
+    threading.Timer(1.5, lambda: os._exit(0)).start()
+    return True
 
 
 # ---------------------------------------------------------------- pianificazione
@@ -915,42 +1122,46 @@ def start_scan_sync():
 
 def scheduled_check():
     if not start_scan_sync():
-        return
+        return False
+    with lock:
+        if state["stale"]:
+            return False   # il controllo non è riuscito: niente notifica falsa, si riprova
     todo = visible_pending()
     if todo:
         names = ", ".join(i["name"] for i in todo[:3]) + ("…" if len(todo) > 3 else "")
         notify(t("available", len(todo)), names)
     latest = self_update_available()
-    s = load_settings()
-    if latest and s.get("self_notified") != latest:
+    if latest and load_settings().get("self_notified") != latest:
         notify(t("self_title", x=latest), t("self_body"))
-        s["self_notified"] = latest
-        save_settings(s)
+        update_settings(lambda st: st.update(self_notified=latest))
+    return True
 
 
 def auto_update():
+    """Aggiornamento notturno. Restituisce False se non è potuto partire (programma occupato), così
+    lo scheduler riprova invece di considerare fatta la giornata."""
     if not start_scan_sync():
-        return
-    ids, postponed = [], []
-    for i in visible_pending():
-        if i.get("major") or i.get("verified") is False:
-            continue
-        if running_in(i.get("location", "")):
-            postponed.append(i["name"])   # mai chiudere un programma mentre lo stai usando
-        else:
-            ids.append(i["id"])
+        return False
+    with lock:
+        if state["stale"]:
+            return True   # scansione fallita: niente aggiornamenti alla cieca, si riprova domani
+    ids = [i["id"] for i in visible_pending() if not i.get("major") and i.get("verified") is not False]
     if ids:
         with lock:
             if state["running"] or state["scanning"]:
-                return
+                return False
             state["running"] = True
-        do_updates(set(ids))
+        # modalità "auto": ogni programma viene ricontrollato subito prima dell'installazione e,
+        # se aperto, rimandato (mai chiuso)
+        do_updates(set(ids), mode="auto")
     with lock:
-        updated = [i["name"] for i in state["items"] if i["id"] in ids and i.get("updated")]
-        failed = [i["name"] for i in state["items"] if i["id"] in ids and not i.get("updated")]
-    s = load_settings()
-    s["last_auto"] = {"at": time.time(), "updated": updated, "failed": failed, "postponed": postponed}
-    save_settings(s)
+        jobs = {k: v["status"] for k, v in state["jobs"].items() if k in ids}
+        names = {i["id"]: i["name"] for i in state["items"]}
+    updated = [names[k] for k, st in jobs.items() if st == "done"]
+    failed = [names[k] for k, st in jobs.items() if st in ("error", "blocked")]
+    postponed = [names[k] for k, st in jobs.items() if st == "postponed"]
+    s = update_settings(lambda st: st.update(last_auto={"at": time.time(), "updated": updated,
+                                                        "failed": failed, "postponed": postponed}))
     if updated or failed or postponed:
         parts = []
         if updated:
@@ -963,14 +1174,22 @@ def auto_update():
         if lc.get("freed"):
             parts.append(t("freed", x=human(lc["freed"])))
         notify(t("auto_title"), ", ".join(parts))
+    return True
 
 
-def due(hhmm, last_day, now):
+NIGHT_WINDOW_HOURS = 5   # l'aggiornamento "notturno" recupera al risveglio solo entro 5 ore dall'orario scelto
+
+
+def due(hhmm, last_day, now, window_hours=None):
+    """Vero se oggi non è ancora stato fatto e siamo dopo l'orario (entro la finestra, se indicata)."""
     try:
         h, m = map(int, hhmm.split(":"))
     except Exception:
         return False
-    return last_day != now.date().isoformat() and now >= now.replace(hour=h, minute=m, second=0, microsecond=0)
+    start = now.replace(hour=h, minute=m, second=0, microsecond=0)
+    if last_day == now.date().isoformat() or now < start:
+        return False
+    return window_hours is None or now < start + dt.timedelta(hours=window_hours)
 
 
 def scheduler():
@@ -980,14 +1199,13 @@ def scheduler():
             now = dt.datetime.now()
             today = now.date().isoformat()
             s = load_settings()
-            if s["auto_update"] and due(s["auto_time"], s["last_auto_day"], now):
-                s["last_auto_day"] = s["last_check_day"] = today
-                save_settings(s)
-                auto_update()
+            if s["auto_update"] and due(s["auto_time"], s["last_auto_day"], now, NIGHT_WINDOW_HOURS):
+                # la giornata si segna come fatta solo se l'aggiornamento è davvero partito
+                if auto_update():
+                    update_settings(lambda st: st.update(last_auto_day=today, last_check_day=today))
             elif s["daily_check"] and due(s["check_time"], s["last_check_day"], now):
-                s["last_check_day"] = today
-                save_settings(s)
-                scheduled_check()
+                if scheduled_check():
+                    update_settings(lambda st: st.update(last_check_day=today))
         except Exception as e:
             log_line("scheduler", e)
 
@@ -1032,8 +1250,46 @@ def check_self_update(force=False):
 
 def self_update_available():
     with lock:
-        latest = state["self"]["latest"]
-    return latest if latest and newer(latest, VERSION) else None
+        latest, assets = state["self"]["latest"], state["self"].get("assets") or {}
+    if not latest or not newer(latest, VERSION):
+        return None
+    # per l'exe si propone la versione solo quando la Release contiene davvero il file e il suo SHA-256
+    if install_method() == "exe" and not (exe_asset_name() in assets and exe_asset_name() + ".sha256" in assets):
+        return None
+    return latest
+
+
+def fetch(url, timeout=600):
+    req = urllib.request.Request(url, headers={"User-Agent": "AggiornamentiWin"})
+    return urllib.request.urlopen(req, timeout=timeout)
+
+
+def install_new_exe(url, sha_url, log):
+    """Scarica, verifica (SHA-256 pubblicato, intestazione MZ, dimensione) e sostituisce l'exe in uso.
+    Se un passaggio fallisce la versione in uso resta al suo posto."""
+    exe = sys.executable
+    new, old = exe + ".new", exe + ".old"
+    log(t("downloading", x=url))
+    h = hashlib.sha256()
+    with fetch(url) as r, open(new, "wb") as f:
+        while chunk := r.read(1 << 20):
+            h.update(chunk)
+            f.write(chunk)
+    with fetch(sha_url, timeout=60) as r:
+        expected = r.read().decode("ascii", "replace").split()[0].strip().lower()
+    with open(new, "rb") as f:
+        head = f.read(2)
+    if h.hexdigest() != expected or head != b"MZ" or os.path.getsize(new) < 1024 * 1024:
+        os.remove(new)
+        raise ValueError(t("bad_download"))
+    if os.path.exists(old):
+        os.remove(old)
+    os.replace(exe, old)          # un exe in esecuzione non si può sovrascrivere, ma si può rinominare
+    try:
+        os.replace(new, exe)
+    except Exception:
+        os.replace(old, exe)      # ripristino: la versione in uso torna al suo posto
+        raise
 
 
 def restart_server():
@@ -1065,21 +1321,12 @@ def do_self_update():
             ok = True
         elif install_method() == "exe":
             with lock:
-                url = (state["self"].get("assets") or {}).get(exe_asset_name())
-            if not url:
+                assets = state["self"].get("assets") or {}
+            url, sha_url = assets.get(exe_asset_name()), assets.get(exe_asset_name() + ".sha256")
+            if not url or not sha_url:
                 log(f"{exe_asset_name()} non presente nella Release")
             else:
-                exe = sys.executable
-                new, old = exe + ".new", exe + ".old"
-                log(t("downloading", x=url))
-                req = urllib.request.Request(url, headers={"User-Agent": "AggiornamentiWin"})
-                with urllib.request.urlopen(req, timeout=600) as r, open(new, "wb") as f:
-                    shutil.copyfileobj(r, f)
-                # un exe in esecuzione non si può sovrascrivere, ma si può rinominare
-                if os.path.exists(old):
-                    os.remove(old)
-                os.replace(exe, old)
-                os.replace(new, exe)
+                install_new_exe(url, sha_url, log)
                 ok = True
         elif install_method() == "git":
             rc, out = run(["git", "-C", ROOT, "status", "--porcelain", "--untracked-files=no"], timeout=60)
@@ -1088,10 +1335,8 @@ def do_self_update():
             else:
                 rc, out = run(["git", "-C", ROOT, "fetch", "--tags", "origin"], timeout=300)
                 log(out)
-                rc, branch = run(["git", "-C", ROOT, "rev-parse", "--abbrev-ref", "HEAD"], timeout=30)
-                cmd = (["git", "-C", ROOT, "checkout", f"v{latest}"] if branch.strip() == "HEAD"
-                       else ["git", "-C", ROOT, "merge", "--ff-only", f"origin/{branch.strip()}"])
-                rc, out = run(cmd, timeout=300)
+                # si installa la versione annunciata (il tag), non l'ultimo stato del ramo
+                rc, out = run(["git", "-C", ROOT, "checkout", "--quiet", f"v{latest}"], timeout=300)
                 log(out)
                 ok = rc == 0
         else:
@@ -1144,6 +1389,7 @@ class Handler(BaseHTTPRequestHandler):
 
     def snapshot(self):
         available, method = self_update_available(), install_method()
+        history = load_history()
         with lock:
             return {
                 "scanning": state["scanning"], "scanned_at": state["scanned_at"],
@@ -1153,8 +1399,12 @@ class Handler(BaseHTTPRequestHandler):
                 "repo": REPO, "admin": is_admin() or DEMO,
                 "self": {**state["self"], "available": available, "method": method},
                 "excluded": load_excluded(), "unchecked": state["unchecked"], "macos": state["macos"],
-                "settings": {**load_settings(), "login": login_enabled() if not DEMO else False, "notifier": True},
+                "settings": {**load_settings(), "login": _task["login"], "notifier": True},
+                "admin_task": _task["exists"],
                 "password": is_admin() or DEMO,
+                "scan_warnings": state["scan_warnings"], "stale": state["stale"],
+                "stopping": state["stop"], "quitting": state["quit_after"] or state.get("quitting", False),
+                "history": history[-30:],
             }
 
     def host_ok(self):
@@ -1194,11 +1444,18 @@ class Handler(BaseHTTPRequestHandler):
         origin = self.headers.get("Origin")
         if origin and origin not in (f"http://{HOST}:{PORT}", f"http://localhost:{PORT}"):
             return self.send(403, {"error": "forbidden"})
-        n = int(self.headers.get("Content-Length") or 0)
+        try:
+            n = int(self.headers.get("Content-Length") or 0)
+        except ValueError:
+            return self.send(400, {"error": "bad length"})
+        if n > 64 * 1024:
+            return self.send(413, {"error": "too large"})
         try:
             body = json.loads(self.rfile.read(n) or b"{}")
         except Exception:
-            body = {}
+            return self.send(400, {"error": "invalid json"})
+        if not isinstance(body, dict):
+            return self.send(400, {"error": "expected an object"})
         u = urlparse(self.path)
         if u.path == "/api/scan":
             with lock:
@@ -1207,7 +1464,10 @@ class Handler(BaseHTTPRequestHandler):
                     threading.Thread(target=do_scan, args=(True,), daemon=True).start()
             return self.send(200, self.snapshot())
         if u.path == "/api/update":
-            ids = set(body.get("ids") or [])
+            ids = body.get("ids")
+            if not isinstance(ids, list) or not all(isinstance(x, str) for x in ids):
+                return self.send(400, {"error": "ids must be a list of strings"})
+            ids = set(ids)
             with lock:
                 if state["running"] or state["scanning"] or not ids:
                     return self.send(409, {"error": t("busy")})
@@ -1228,18 +1488,53 @@ class Handler(BaseHTTPRequestHandler):
             threading.Thread(target=do_self_update, daemon=True).start()
             return self.send(200, self.snapshot())
         if u.path == "/api/quit":
-            # usato dalla copia elevata per prendere il posto di questa
+            # mai a metà di un aggiornamento: in quel caso si risponde 409 e non si esce
             with lock:
-                busy = state["running"]
-            if busy:
-                return self.send(409, {"error": t("busy")})
+                if state["running"]:
+                    return self.send(409, {"error": t("busy")})
+                state["quitting"] = True
             self.send(200, {"ok": True})
-            threading.Timer(0.3, lambda: os._exit(0)).start()
+            threading.Timer(1.5, lambda: os._exit(0)).start()   # il tempo per la pagina di accorgersene
             return
+        if u.path == "/api/stop":
+            with lock:
+                if state["running"]:
+                    state["stop"] = True   # finisce l'installazione in corso, salta le successive
+            return self.send(200, self.snapshot())
+        if u.path in ("/api/force", "/api/dismiss"):
+            jid = body.get("id")
+            if not isinstance(jid, str):
+                return self.send(400, {"error": "id must be a string"})
+            with lock:
+                job = state["jobs"].get(jid)
+                if not job or job["status"] not in ("blocked", "postponed", "error"):
+                    return self.send(409, {"error": "not blocked"})
+                if u.path == "/api/dismiss":
+                    state["jobs"].pop(jid, None)   # "Rimanda": torna tra gli aggiornamenti da fare
+                    return self.send(200, self.snapshot())
+                if state["running"] or state["scanning"]:
+                    return self.send(409, {"error": t("busy")})
+                state["running"] = True
+            threading.Thread(target=do_updates, args=({jid}, "force"), daemon=True).start()
+            return self.send(200, self.snapshot())
+        if u.path == "/api/retry":
+            token = body.get("token")
+            if not isinstance(token, str):
+                return self.send(400, {"error": "token must be a string"})
+            update_settings(lambda st: (st.get("unupgradable") or {}).pop(token, None))
+            with lock:
+                if not state["scanning"] and not state["running"]:
+                    state["scanning"] = True
+                    threading.Thread(target=do_scan, daemon=True).start()
+            return self.send(200, self.snapshot())
         if u.path == "/api/elevate":
-            # una sola richiesta UAC: il server riparte come amministratore e crea l'avvio all'accesso
+            # una sola richiesta di Windows: il server riparte come amministratore e crea l'attività;
+            # "login" dice se deve anche partire all'accensione
+            login = bool(body.get("login", True))
             if not DEMO and not is_admin():
-                elevate_and_enable_login()
+                elevate_and_configure(login)
+            elif not DEMO and not set_login(login):
+                return self.send(500, {"error": t("task_failed")})
             return self.send(200, self.snapshot())
         if u.path == "/api/cleanup":
             with lock:
@@ -1256,7 +1551,8 @@ class Handler(BaseHTTPRequestHandler):
             threading.Thread(target=job, daemon=True).start()
             return self.send(200, self.snapshot())
         if u.path == "/api/settings":
-            s = load_settings()
+            with files_lock:
+                s = load_settings()
             now = dt.datetime.now()
             for flag, tkey, dkey in (("daily_check", "check_time", "last_check_day"),
                                      ("auto_update", "auto_time", "last_auto_day")):
@@ -1273,12 +1569,13 @@ class Handler(BaseHTTPRequestHandler):
                     s[dkey] = now.date().isoformat() if passed else None
             if "welcomed" in body:
                 s["welcomed"] = bool(body["welcomed"])
-            save_settings(s)
-            if "login" in body:
-                if body["login"] and not is_admin() and not DEMO:
-                    elevate_and_enable_login()
-                else:
-                    set_login(bool(body["login"]))
+            with files_lock:
+                save_settings(s)
+            if "login" in body and not DEMO:
+                if not is_admin():
+                    elevate_and_configure(bool(body["login"]))   # cambiare l'attività richiede i privilegi
+                elif not set_login(bool(body["login"])):
+                    return self.send(500, {"error": t("task_failed")})
             return self.send(200, self.snapshot())
         if u.path == "/api/notify-test":
             notify("Aggiornamenti", t("test"))
@@ -1290,7 +1587,7 @@ class Handler(BaseHTTPRequestHandler):
             key = str(body.get("key") or "")
             if not key:
                 return self.send(400, {"error": "missing key"})
-            with lock:
+            with files_lock:
                 excluded = load_excluded()
                 if body.get("exclude"):
                     excluded[key] = {"name": str(body.get("name") or key), "path": None,
@@ -1318,19 +1615,25 @@ def main():
                 winreg.SetValueEx(k, "DisplayVersion", 0, winreg.REG_SZ, VERSION)
         except OSError:
             pass
-    if "--enable-login" in sys.argv:
-        # avviato elevato da /api/elevate: crea l'attività e prosegue come server amministratore
-        sys.argv.remove("--enable-login")
-        set_login(True)
+    flags = [a for a in ("--task-login", "--task-nologin", "--enable-login") if a in sys.argv]
+    if flags:
+        # avviato elevato da /api/elevate o dalle impostazioni: configura l'attività e prosegue come
+        # server amministratore al posto di quello senza privilegi
+        for a in flags:
+            sys.argv.remove(a)
+        set_login(flags[0] != "--task-nologin")
         # il server non elevato occupa ancora la porta: gli si chiede di chiudersi
         try:
             urllib.request.urlopen(urllib.request.Request(f"{PAGE_URL}/api/quit", data=b"{}", method="POST"), timeout=3)
         except Exception:
             pass
         os.environ["AGG_RESTARTED"] = "1"
-    if not DEMO and is_admin() and login_enabled():
-        # le attività create dalle versioni fino alla 0.2.0 avevano le impostazioni sbagliate: si riscrivono
-        threading.Thread(target=set_login, args=(True,), daemon=True).start()
+    def check_task():
+        refresh_task()
+        if not DEMO and is_admin() and _task["exists"]:
+            # le attività create fino alla 0.2.0 avevano impostazioni sbagliate: si riscrivono (stesso avvio)
+            set_login(_task["login"])
+    threading.Thread(target=check_task, daemon=True).start()
     with lock:
         state["scanning"] = True
     attempts = 20 if os.environ.pop("AGG_RESTARTED", None) else 1
@@ -1354,7 +1657,7 @@ def main():
     sys.modules.setdefault("server", sys.modules[__name__])   # tray importa "server": stesso stato
     import tray
     threading.Thread(target=srv.serve_forever, daemon=True).start()
-    if not tray.run(on_quit=lambda: os._exit(0)):
+    if not tray.run(on_quit=request_quit):
         while True:
             time.sleep(3600)
 

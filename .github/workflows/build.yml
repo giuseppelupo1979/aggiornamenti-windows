@@ -1,17 +1,30 @@
-# Costruisce Aggiornamenti.exe per x64 e ARM64 e lo allega alla Release.
-# Builds Aggiornamenti.exe for x64 and ARM64 and attaches it to the release.
+# Test, costruzione di Aggiornamenti.exe per x64 e ARM64, pubblicazione della Release.
+# Si avvia con il push di un tag vX.Y.Z. La Release viene creata come bozza e resa pubblica solo
+# quando entrambi gli exe e i loro SHA-256 sono caricati: l'auto-aggiornamento non vede mai una
+# versione senza file.
 name: build
 
 on:
-  release:
-    types: [published]
+  push:
+    tags: ["v*"]
   workflow_dispatch:
 
 permissions:
   contents: write
 
 jobs:
+  test:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.13"
+      - name: Test
+        run: python -m unittest discover -s tests -v
+
   exe:
+    needs: test
     strategy:
       matrix:
         include:
@@ -28,7 +41,7 @@ jobs:
       - name: Build
         shell: pwsh
         run: |
-          python -m pip install --disable-pip-version-check pyinstaller pystray pillow
+          python -m pip install --disable-pip-version-check -r requirements-build.txt
           python -m PyInstaller --noconfirm --clean --onefile --noconsole --name Aggiornamenti `
             --icon assets/app.ico --add-data "index.html;." --add-data "assets;assets" `
             --hidden-import pystray._win32 app.py
@@ -48,13 +61,29 @@ jobs:
           $html = (Invoke-WebRequest -UseBasicParsing http://127.0.0.1:8799/).Content
           if ($html -notmatch "Aggiornamenti") { throw "page not served" }
           "ok: version $($s.version), $($s.items.Count) demo items"
-      - name: Upload
-        if: github.event_name == 'release'
-        shell: pwsh
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: gh release upload "${{ github.event.release.tag_name }}" "dist/Aggiornamenti-${{ matrix.arch }}.exe" "dist/Aggiornamenti-${{ matrix.arch }}.exe.sha256" --clobber
       - uses: actions/upload-artifact@v4
         with:
           name: Aggiornamenti-${{ matrix.arch }}
           path: dist/Aggiornamenti-${{ matrix.arch }}.exe*
+
+  release:
+    needs: exe
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+      - name: Upload and publish
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          ls -la dist
+          test -f "dist/Aggiornamenti-x64.exe" && test -f "dist/Aggiornamenti-arm64.exe"
+          # la Release (bozza con le note) la crea chi rilascia; se manca, la si crea qui
+          gh release view "$TAG" -R "$GITHUB_REPOSITORY" >/dev/null 2>&1 || \
+            gh release create "$TAG" -R "$GITHUB_REPOSITORY" --draft --title "Aggiornamenti per Windows ${TAG#v}" --notes ""
+          gh release upload "$TAG" dist/* -R "$GITHUB_REPOSITORY" --clobber
+          gh release edit "$TAG" -R "$GITHUB_REPOSITORY" --draft=false --latest
