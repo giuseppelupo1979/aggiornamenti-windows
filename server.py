@@ -26,7 +26,7 @@ import urllib.request
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import urlparse
 
-VERSION = "0.2.1"   # tenere allineata con CHANGELOG.md
+VERSION = "0.2.2"   # tenere allineata con CHANGELOG.md
 # --demo: dati finti, cartelle temporanee, nessuna modifica al sistema (per prove e screenshot)
 DEMO = "--demo" in sys.argv
 HOST = "127.0.0.1"
@@ -94,6 +94,8 @@ MESSAGES = {
     "app_open": ("{x} è aperto: chiudilo (anche dall'area di notifica vicino all'orologio) e riprova.",) * 2
                 + ("{x} is running: close it (including from the notification area by the clock) and try again.",) * 2,
     "closing": ("Chiudo {x}",) * 2 + ("Quitting {x}",) * 2,
+    "unsaved": ("C'è un documento non salvato ({x}): salvalo o chiudilo, poi riprova. Non lo chiudo per non farti perdere il lavoro.",) * 2
+               + ("There's an unsaved document ({x}): save or close it, then try again. It wasn't closed so you don't lose your work.",) * 2,
     "need_admin": ("Questo aggiornamento richiede i privilegi di amministratore: attivali in basso nella pagina.",) * 2
                   + ("This update needs administrator rights: turn them on at the bottom of the page.",) * 2,
 }
@@ -476,21 +478,64 @@ def running_in(location):
         return []
 
 
+WINDOWS_HELPER = r"""
+Add-Type @'
+using System; using System.Text; using System.Collections.Generic; using System.Runtime.InteropServices;
+public class W {
+  public delegate bool P(IntPtr h, IntPtr l);
+  [DllImport("user32.dll")] static extern bool EnumWindows(P f, IntPtr l);
+  [DllImport("user32.dll")] static extern uint GetWindowThreadProcessId(IntPtr h, out uint p);
+  [DllImport("user32.dll")] static extern bool IsWindowVisible(IntPtr h);
+  [DllImport("user32.dll")] static extern int GetWindowText(IntPtr h, StringBuilder s, int n);
+  [DllImport("user32.dll")] static extern bool PostMessage(IntPtr h, uint m, IntPtr w, IntPtr l);
+  public static List<string> Close(HashSet<uint> pids, bool send) {
+    var titles = new List<string>();
+    EnumWindows((h, l) => { uint p; GetWindowThreadProcessId(h, out p);
+      if (pids.Contains(p) && IsWindowVisible(h)) {
+        var t = new StringBuilder(512); GetWindowText(h, t, 512); titles.Add(t.ToString());
+        if (send) PostMessage(h, 0x0010, IntPtr.Zero, IntPtr.Zero);   // WM_CLOSE a ogni finestra, dialoghi compresi
+      }
+      return true; }, IntPtr.Zero);
+    return titles;
+  }
+}
+'@
+"""
+
+
+def window_titles(pids, close=False):
+    """Titoli delle finestre visibili dei processi; con close=True chiede a ognuna di chiudersi."""
+    script = (WINDOWS_HELPER + "$s = New-Object 'System.Collections.Generic.HashSet[uint32]';"
+              + "".join(f"[void]$s.Add({int(p)});" for p in pids)
+              + f"[W]::Close($s, ${'true' if close else 'false'}) | ForEach-Object {{ 'T:' + $_ }}")
+    rc, out = powershell(script, timeout=60)
+    return [l[2:].strip() for l in out.splitlines() if l.startswith("T:")]
+
+
+UNSAVED = re.compile(r"^\*|\*\s|\s\*$|●|\(modificato\)|\(modified\)", re.I)
+
+
 def close_apps(procs, log):
-    """Chiude con garbo: prima le finestre; i programmi senza finestra (area di notifica) si fermano.
-    Se un programma con finestra non si chiude (es. documento da salvare) non lo si forza: False."""
-    ids = ",".join(str(p["id"]) for p in procs)
-    powershell(f"Get-Process -Id {ids} -ErrorAction SilentlyContinue | ForEach-Object {{ [void]$_.CloseMainWindow() }}", timeout=30)
-    for _ in range(16):
+    """Chiude con garbo ogni finestra del programma (anche i dialoghi, per esempio l'aggiornatore
+    interno di Notepad++). Se dopo 10 secondi resta aperto: lo si chiude d'autorità, tranne quando un
+    titolo indica un documento non salvato, che non si rischia di perdere. Restituisce True se chiuso."""
+    pids = [p["id"] for p in procs]
+    before = set(window_titles(pids, close=True))
+    for _ in range(20):
         time.sleep(0.5)
-        alive = [p for p in procs if pid_alive(p["id"])]
-        if not alive:
+        if not any(pid_alive(p) for p in pids):
             return True
-    if any(p["window"] for p in alive):
+    alive = [p for p in pids if pid_alive(p)]
+    titles = window_titles(alive)
+    # documento non salvato: asterisco o pallino nel titolo, oppure una finestra comparsa dopo la
+    # richiesta di chiusura (la domanda "Vuoi salvare le modifiche?" di Word e simili)
+    unsaved = [t for t in titles if UNSAVED.search(t)] + [t for t in titles if t and t not in before]
+    if unsaved:
+        log(t("unsaved", x=unsaved[0]))
         return False
-    powershell("Stop-Process -Id " + ",".join(str(p["id"]) for p in alive) + " -ErrorAction SilentlyContinue", timeout=30)
+    powershell("Stop-Process -Id " + ",".join(str(p) for p in alive) + " -Force -ErrorAction SilentlyContinue", timeout=30)
     time.sleep(1)
-    return not any(pid_alive(p["id"]) for p in alive)
+    return not any(pid_alive(p) for p in alive)
 
 
 def pid_alive(pid):
@@ -713,7 +758,8 @@ def update_one(item):
             # si riaprono le finestre e l'exe principale (per i programmi dell'area di notifica)
             reopen_paths = sorted({p["path"] for p in procs if p["window"] or p["path"].lower() == icon})
         else:
-            log(t("app_open", x=item["name"]))
+            if not lines or not lines[-1].startswith(t("unsaved", x="")[:12]):
+                log(t("app_open", x=item["name"]))   # il messaggio sul documento non salvato è già più preciso
             item = {**item, "token": None, "_blocked": True}
     if item.get("_blocked"):
         pass

@@ -2,6 +2,18 @@
 
 Tutte le modifiche rilevanti al progetto. Le versioni seguono il [versionamento semantico](https://semver.org/lang/it/).
 
+## [0.2.2] - 2026-10-09
+
+### Corretto
+- I programmi aperti spesso non venivano chiusi e l'aggiornamento falliva con "è aperto: chiudilo e riprova". La chiusura veniva chiesta solo alla finestra principale, e un dialogo aperto (per esempio quello di aggiornamento interno di Notepad++) la bloccava. Ora la richiesta arriva a **tutte** le finestre del programma; se dopo 10 secondi è ancora aperto viene chiuso d'autorità, aggiornato e riaperto.
+- Protezione dei documenti: il programma **non** viene chiuso d'autorità se un titolo di finestra indica un documento non salvato (asterisco o pallino) o se, alla richiesta di chiusura, compare una nuova finestra come "Vuoi salvare le modifiche?". In quel caso l'aggiornamento viene saltato con una spiegazione.
+
+### Verificato sulla VM Windows 11
+- Esci dal **vero menu** dell'icona vicino all'orologio e riapertura dal **vero collegamento del menu Start**: 2,8 s con privilegi; 6,9 s senza, con l'attività di avvio bloccata.
+- Notepad++ aperto con il suo dialogo di aggiornamento: chiuso in 1 s, aggiornato, riaperto.
+- Notepad++ con documento non salvato e salvataggio automatico attivo: chiuso, aggiornato, riaperto con il testo intatto.
+- Notepad++ con documento non salvato che chiede di salvare: non chiuso, aggiornamento saltato con spiegazione.
+
 ## [0.2.1] - 2026-10-09
 
 ### Corretto
