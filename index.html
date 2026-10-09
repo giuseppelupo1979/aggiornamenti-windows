@@ -269,6 +269,7 @@ const I18N = {
     wDaily: "Controllo ogni mattina alle 9", wDailySub: "Una notifica ti avvisa se c'è qualcosa da aggiornare.",
     wNightly: "Aggiorna da solo di notte", wNightlySub: "Alle 3 aggiorna i programmi chiusi; quelli aperti li rimanda.",
     wGo: "Inizia",
+    offline: "Aggiornamenti non è in esecuzione: riaprilo dal menu Start o dal collegamento sul Desktop.",
   },
   en: {
     title: "Aggiornamenti", check: "Check", update: "Update", updateAll: "Update all", updateN: n => `Update (${n})`,
@@ -318,6 +319,7 @@ const I18N = {
     wDaily: "Check every morning at 9", wDailySub: "A notification tells you when something needs updating.",
     wNightly: "Update by itself at night", wNightlySub: "At 3 AM it updates closed programs and postpones open ones.",
     wGo: "Start",
+    offline: "Aggiornamenti isn't running: reopen it from the Start menu or the Desktop shortcut.",
   },
 };
 const forced = new URLSearchParams(location.search).get("lang");
@@ -679,6 +681,7 @@ $("#elevate").onclick = async () => {
 applyStatic();
 let langFromServer = false;
 let startVersion = null;
+let offline = 0;
 async function poll() {
   try {
     data = await api("/api/state");
@@ -688,7 +691,12 @@ async function poll() {
     // la lingua del Mac (dal server) prevale su quella del browser
     if (!langFromServer && data.lang) { setLang(data.lang); applyStatic(); langFromServer = true; }
     render();
-  } catch {}
+    offline = 0;
+  } catch {
+    // il programma è stato chiuso (per esempio con Esci dall'icona vicino all'orologio)
+    offline++;
+    if (offline >= 3 && !(data.self && data.self.status === "restarting")) $("#sub").textContent = L.offline;
+  }
   const selfBusy = data.self && (data.self.status === "updating" || data.self.status === "restarting");
   setTimeout(poll, data.running || selfBusy ? 500 : data.scanning ? 1000 : 5000);
 }

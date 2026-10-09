@@ -2,6 +2,15 @@
 
 Tutte le modifiche rilevanti al progetto. Le versioni seguono il [versionamento semantico](https://semver.org/lang/it/).
 
+## [0.2.1] - 2026-10-09
+
+### Corretto
+- Dopo **Esci** dall'icona vicino all'orologio il programma poteva non riaprirsi più. Le cause erano tre, tutte corrette:
+  - il lanciatore controllava se il server era attivo con tentativi che su Windows durano circa 2 secondi l'uno: dopo Esci la finestra impiegava fino a due minuti e mezzo ad aprirsi, e se nel frattempo l'avvio non era riuscito si apriva su una pagina morta. Ora la verifica dura al massimo 0,3 secondi e le attese sono in tempo reale: la riapertura richiede circa 2 secondi;
+  - se l'attività pianificata non partiva, il lanciatore non aveva alternative. Ora, se entro pochi secondi non compare il processo, avvia il programma direttamente (senza privilegi) in circa 7 secondi;
+  - l'attività creata con `schtasks` non partiva **a batteria**, si fermava passando alla batteria e veniva chiusa **dopo 3 giorni**. Ora è registrata con le impostazioni giuste, e quelle create dalle versioni precedenti vengono corrette da sole al primo avvio con i privilegi.
+- Se il programma non è in esecuzione, la finestra lo dice e spiega come riaprirlo, invece di mostrare dati vecchi.
+
 ## [0.2.0] - 2026-10-09
 
 ### Aggiunto

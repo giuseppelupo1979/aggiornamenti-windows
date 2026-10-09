@@ -26,11 +26,33 @@ UNINSTALL_KEY = r"Software\Microsoft\Windows\CurrentVersion\Uninstall\Aggiorname
 
 
 def up(port):
+    """Il server ascolta? Su Windows collegarsi a una porta chiusa di localhost fallisce solo dopo
+    circa 2 secondi di tentativi: con un limite di 0,3 s la risposta è immediata in entrambi i casi."""
+    import socket
     try:
-        urllib.request.urlopen(f"http://127.0.0.1:{port}/api/state", timeout=2)
-        return True
-    except Exception:
+        with socket.create_connection(("127.0.0.1", port), timeout=0.3):
+            return True
+    except OSError:
         return False
+
+
+def wait_up(port, seconds):
+    deadline = time.monotonic() + seconds   # tempo reale, non numero di tentativi
+    while time.monotonic() < deadline:
+        if up(port):
+            return True
+        time.sleep(0.3)
+    return False
+
+
+def background_started(before):
+    """È comparso un nuovo processo Aggiornamenti dopo la richiesta all'attività pianificata?"""
+    return count_processes() > before
+
+
+def count_processes():
+    rc, out = server.run(["tasklist", "/FI", "IMAGENAME eq Aggiornamenti.exe", "/NH"], timeout=20)
+    return out.lower().count("aggiornamenti.exe")
 
 
 def quit_running(port):
@@ -165,15 +187,23 @@ def main():
         cmd = [sys.executable, "--background"] if frozen else [sys.executable, os.path.abspath(__file__), "--background"]
         if demo:
             cmd.append("--demo")
+        started = False
         # con l'avvio all'accesso attivo si riparte dall'attività pianificata (privilegi senza richiesta)
         if not demo and server.login_enabled():
+            before = count_processes()
             server.run(["schtasks", "/Run", "/TN", server.TASK_NAME], timeout=30)
-        else:
+            # se Windows non avvia davvero l'attività (es. impostazioni vecchie a batteria) lo si vede in
+            # pochi secondi: nessun processo nuovo. Se è partita, le si lascia il tempo di aprire la porta.
+            spawned = False
+            deadline = time.monotonic() + 4
+            while time.monotonic() < deadline and not spawned:
+                time.sleep(0.5)
+                spawned = background_started(before)
+            started = wait_up(port, 30) if spawned else False
+        if not started:
+            # piano B: se l'attività non parte (o non c'è) il programma si avvia comunque, senza privilegi
             subprocess.Popen(cmd, creationflags=NO_WINDOW | DETACHED, close_fds=True)
-        for _ in range(60):
-            if up(port):
-                break
-            time.sleep(0.5)
+            wait_up(port, 30)
     open_window(f"http://127.0.0.1:{port}/")
 
 

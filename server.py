@@ -26,7 +26,7 @@ import urllib.request
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import urlparse
 
-VERSION = "0.2.0"   # tenere allineata con CHANGELOG.md
+VERSION = "0.2.1"   # tenere allineata con CHANGELOG.md
 # --demo: dati finti, cartelle temporanee, nessuna modifica al sistema (per prove e screenshot)
 DEMO = "--demo" in sys.argv
 HOST = "127.0.0.1"
@@ -277,10 +277,21 @@ def set_login(enabled):
         run(["schtasks", "/Delete", "/TN", TASK_NAME, "/F"], timeout=30)
         return True
     exe, arg = launch_command()
-    tr = f'"{exe}" {arg}' if FROZEN else f'"{exe}" "{arg}"'
-    rc, out = run(["schtasks", "/Create", "/TN", TASK_NAME, "/SC", "ONLOGON", "/RL", "HIGHEST", "/F",
-                   "/TR", tr], timeout=60)
-    log_line("schtasks create", rc, out)
+    q = lambda x: x.replace("'", "''")
+    argument = arg if FROZEN else f'"{arg}"'
+    # Register-ScheduledTask invece di schtasks: le impostazioni predefinite di schtasks impediscono
+    # l'avvio a batteria, fermano il programma quando il portatile passa alla batteria e lo uccidono
+    # dopo 3 giorni. Qui: parte sempre, nessun limite di durata, mai due copie insieme.
+    script = (
+        f"$a=New-ScheduledTaskAction -Execute '{q(exe)}' -Argument '{q(argument)}' -WorkingDirectory '{q(ROOT)}';"
+        "$u=$env:USERDOMAIN+'\\'+$env:USERNAME;"
+        "$t=New-ScheduledTaskTrigger -AtLogOn -User $u;"
+        "$p=New-ScheduledTaskPrincipal -UserId $u -LogonType Interactive -RunLevel Highest;"
+        "$s=New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries "
+        "-ExecutionTimeLimit ([TimeSpan]::Zero) -MultipleInstances IgnoreNew -StartWhenAvailable;"
+        f"Register-ScheduledTask -TaskName '{TASK_NAME}' -Action $a -Trigger $t -Principal $p -Settings $s -Force | Out-Null")
+    rc, out = powershell(script, timeout=60)
+    log_line("attività all'accesso", rc, out.strip())
     return rc == 0
 
 
@@ -1271,6 +1282,9 @@ def main():
         except Exception:
             pass
         os.environ["AGG_RESTARTED"] = "1"
+    if not DEMO and is_admin() and login_enabled():
+        # le attività create dalle versioni fino alla 0.2.0 avevano le impostazioni sbagliate: si riscrivono
+        threading.Thread(target=set_login, args=(True,), daemon=True).start()
     with lock:
         state["scanning"] = True
     attempts = 20 if os.environ.pop("AGG_RESTARTED", None) else 1
