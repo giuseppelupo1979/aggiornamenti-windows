@@ -4,7 +4,7 @@
 
 [English version →](README.en.md)
 
-![La finestra di Aggiornamenti](docs/finestra.png)
+<img src="docs/finestra.png" alt="La finestra di Aggiornamenti" width="600">
 
 ---
 
@@ -22,12 +22,10 @@ Apri **Aggiornamenti** dalla cartella Download (o dalla barra di download del br
 
 La prima volta Windows mostra quasi sicuramente una schermata blu **"PC protetto da Windows"**. È normale: compare con tutti i programmi nuovi che non sono firmati da un'azienda con un certificato a pagamento. Per proseguire:
 
-1. clicca **Ulteriori informazioni**;
-2. clicca **Esegui comunque**.
+1. clicca la scritta **Ulteriori informazioni**;
+2. in basso compare un nuovo pulsante, **Esegui comunque**: cliccalo.
 
-| Prima clicca qui… | …poi qui |
-|---|---|
-| ![Avviso PC protetto da Windows: clicca Ulteriori informazioni](docs/smartscreen-1.png) | ![Avviso con il pulsante Esegui comunque](docs/smartscreen-2.png) |
+<img src="docs/smartscreen.png" alt="Avviso PC protetto da Windows: clicca Ulteriori informazioni, poi Esegui comunque" width="420">
 
 ### 3. Fatto
 

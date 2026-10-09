@@ -4,7 +4,7 @@
 
 [Versione italiana →](README.md)
 
-![The Aggiornamenti window](docs/finestra.png)
+<img src="docs/finestra.png" alt="The Aggiornamenti window" width="600">
 
 ## Install (3 minutes)
 
