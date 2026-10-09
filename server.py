@@ -12,6 +12,7 @@ import concurrent.futures as cf
 import ctypes
 import datetime as dt
 import glob
+import hashlib
 import json
 import os
 import re
@@ -25,7 +26,7 @@ import urllib.request
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import urlparse
 
-VERSION = "0.1.2"   # tenere allineata con CHANGELOG.md
+VERSION = "0.2.0"   # tenere allineata con CHANGELOG.md
 # --demo: dati finti, cartelle temporanee, nessuna modifica al sistema (per prove e screenshot)
 DEMO = "--demo" in sys.argv
 HOST = "127.0.0.1"
@@ -74,6 +75,7 @@ MESSAGES = {
     "available": ("{n} aggiornamento disponibile", "{n} aggiornamenti disponibili", "{n} update available", "{n} updates available"),
     "upd_ok": ("{n} app aggiornata", "{n} app aggiornate", "{n} app updated", "{n} apps updated"),
     "upd_fail": ("{n} non riuscita", "{n} non riuscite", "{n} failed", "{n} failed"),
+    "upd_postponed": ("{n} rimandata perché aperta", "{n} rimandate perché aperte", "{n} postponed (in use)", "{n} postponed (in use)"),
     "freed": ("liberati {x}", "liberati {x}", "{x} freed", "{x} freed"),
     "auto_title": ("Aggiornamento automatico",) * 2 + ("Automatic update",) * 2,
     "test": ("Le notifiche funzionano. Un clic qui apre la pagina.",) * 2 + ("Notifications work. Click here to open the page.",) * 2,
@@ -91,6 +93,7 @@ MESSAGES = {
                         + ("The program's installer failed: if the program was open (even just in the notification area) close it and try again, or answer Yes to Windows' prompt.",) * 2,
     "app_open": ("{x} è aperto: chiudilo (anche dall'area di notifica vicino all'orologio) e riprova.",) * 2
                 + ("{x} is running: close it (including from the notification area by the clock) and try again.",) * 2,
+    "closing": ("Chiudo {x}",) * 2 + ("Quitting {x}",) * 2,
     "need_admin": ("Questo aggiornamento richiede i privilegi di amministratore: attivali in basso nella pagina.",) * 2
                   + ("This update needs administrator rights: turn them on at the bottom of the page.",) * 2,
 }
@@ -237,6 +240,7 @@ DEFAULT_SETTINGS = {
     "daily_check": True, "check_time": "09:00",
     "auto_update": False, "auto_time": "03:00",
     "last_check_day": None, "last_auto_day": None, "last_auto": None, "last_cleanup": None,
+    "welcomed": False,
 }
 
 
@@ -379,6 +383,118 @@ SYSTEM_NAMES = re.compile(r"redistributable|runtime|driver|update for|windows sd
                           r"microsoft edge update|visual c\+\+", re.I)
 
 
+# ---------------------------------------------------------------- programmi installati (registro di Windows)
+
+_arp = []   # [{name, location, icon}] dal registro "Programmi e funzionalità"
+
+
+def load_arp():
+    """Nome, cartella e icona di ogni programma installato, dalle chiavi Uninstall del registro."""
+    script = (
+        "$k=@('HKLM:\\Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\*',"
+        "'HKLM:\\Software\\WOW6432Node\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\*',"
+        "'HKCU:\\Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\*');"
+        "Get-ItemProperty $k -ErrorAction SilentlyContinue | Where-Object DisplayName | "
+        "Select-Object DisplayName, InstallLocation, DisplayIcon | ConvertTo-Json -Compress")
+    rc, out = powershell(script, timeout=120)
+    entries = []
+    try:
+        data = json.loads(out.strip() or "[]")
+        for e in data if isinstance(data, list) else [data]:
+            icon = (e.get("DisplayIcon") or "").split(",")[0].strip().strip('"')
+            loc = (e.get("InstallLocation") or "").strip().strip('"')
+            if not loc and icon.lower().endswith(".exe"):
+                loc = os.path.dirname(icon)
+            entries.append({"name": e["DisplayName"].strip(), "location": loc.rstrip("\\"), "icon": icon})
+    except Exception as ex:
+        log_line("registro programmi", ex)
+    _arp[:] = entries
+
+
+def arp_for(name):
+    """Voce del registro che corrisponde al nome mostrato da winget (che può essere troncato)."""
+    n = name.strip().lower()
+    if not n:
+        return None
+    exact = [e for e in _arp if e["name"].lower() == n]
+    if exact:
+        return exact[0]
+    pref = [e for e in _arp if e["name"].lower().startswith(n) or n.startswith(e["name"].lower())]
+    return pref[0] if len(pref) == 1 else None
+
+
+ICONS = os.path.join(CACHE, "icons")
+
+
+def extract_icons(paths):
+    """Estrae in un colpo solo le icone dei programmi (PNG 64x64) e restituisce {percorso: id}."""
+    os.makedirs(ICONS, exist_ok=True)
+    ids, todo = {}, []
+    for p in set(paths):
+        if not p or not os.path.exists(p) or not p.lower().endswith((".exe", ".ico")):
+            continue
+        key = hashlib.sha1(p.lower().encode()).hexdigest()[:16]
+        ids[p] = key
+        if not os.path.exists(os.path.join(ICONS, key + ".png")):
+            todo.append((p, key))
+    if todo:
+        lines = ";".join(
+            "try { $i=" + ("New-Object Drawing.Icon('{0}')" if p.lower().endswith(".ico")
+                           else "[Drawing.Icon]::ExtractAssociatedIcon('{0}')").format(p.replace("'", "''"))
+            + f"; $b=New-Object Drawing.Bitmap 64,64; $g=[Drawing.Graphics]::FromImage($b);"
+              f"$g.InterpolationMode='HighQualityBicubic'; $g.DrawImage($i.ToBitmap(),0,0,64,64);"
+              f"$b.Save('{os.path.join(ICONS, k + '.png')}') }} catch {{}}"
+            for p, k in todo)
+        powershell("Add-Type -AssemblyName System.Drawing;" + lines, timeout=300)
+    return {p: k for p, k in ids.items() if os.path.exists(os.path.join(ICONS, k + ".png"))}
+
+
+def running_in(location):
+    """Processi in esecuzione dentro la cartella di un programma: [{id, path, window}]."""
+    if not location or len(location) < 6:
+        return []
+    loc = location.replace("'", "''")
+    rc, out = powershell(
+        f"Get-Process | Where-Object {{ $_.Path -and $_.Path.StartsWith('{loc}\\', 'OrdinalIgnoreCase') }} | "
+        "Select-Object Id, Path, @{n='Window';e={$_.MainWindowHandle -ne 0}} | ConvertTo-Json -Compress", timeout=60)
+    try:
+        data = json.loads(out.strip() or "[]")
+        return [{"id": d["Id"], "path": d["Path"], "window": bool(d["Window"])}
+                for d in (data if isinstance(data, list) else [data]) if d["Id"] != os.getpid()]
+    except Exception:
+        return []
+
+
+def close_apps(procs, log):
+    """Chiude con garbo: prima le finestre; i programmi senza finestra (area di notifica) si fermano.
+    Se un programma con finestra non si chiude (es. documento da salvare) non lo si forza: False."""
+    ids = ",".join(str(p["id"]) for p in procs)
+    powershell(f"Get-Process -Id {ids} -ErrorAction SilentlyContinue | ForEach-Object {{ [void]$_.CloseMainWindow() }}", timeout=30)
+    for _ in range(16):
+        time.sleep(0.5)
+        alive = [p for p in procs if pid_alive(p["id"])]
+        if not alive:
+            return True
+    if any(p["window"] for p in alive):
+        return False
+    powershell("Stop-Process -Id " + ",".join(str(p["id"]) for p in alive) + " -ErrorAction SilentlyContinue", timeout=30)
+    time.sleep(1)
+    return not any(pid_alive(p["id"]) for p in alive)
+
+
+def pid_alive(pid):
+    rc, out = run(["tasklist", "/FI", f"PID eq {pid}", "/NH"], timeout=20)
+    return str(pid) in out
+
+
+def reopen(paths):
+    """Riapre i programmi chiusi tramite Esplora risorse: partono senza privilegi di amministratore
+    anche quando Aggiornamenti li ha."""
+    for p in paths:
+        if os.path.exists(p):
+            subprocess.Popen(["explorer.exe", p], creationflags=NO_WINDOW)
+
+
 def scan_winget():
     rc, out = run([WINGET, "upgrade", "--include-unknown"] + WG_COMMON, timeout=900)
     upgrades = parse_table(out)
@@ -390,6 +506,7 @@ def scan_winget():
     rc, out_list = run([WINGET, "list"] + WG_COMMON, timeout=900)
     installed = parse_table(out_list)
     full = winget_full_ids()
+    load_arp()
 
     # stessa app elencata sia dal Microsoft Store sia da winget: si tiene la copia winget
     by_name = {}
@@ -423,6 +540,9 @@ def scan_winget():
         })
     for it in items:
         it["key"] = item_key(it)
+        a = arp_for(it["name"])
+        if a:
+            it["location"], it["icon_src"] = a["location"], a["icon"]
 
     # app installate che winget non sa aggiornare: niente origine, e non sono pacchetti di sistema MSIX
     unchecked = []
@@ -436,8 +556,17 @@ def scan_winget():
         if name in seen:
             continue
         seen.add(name)
-        unchecked.append({"name": name, "version": r["version"], "reason": "no_source", "path": None})
+        a = arp_for(name)
+        unchecked.append({"name": name, "version": r["version"], "reason": "no_source", "path": None,
+                          "icon_src": a["icon"] if a else ""})
     unchecked += skipped
+    # icone vere dei programmi; "path" è l'id dell'icona che la pagina chiede a /api/icon
+    for u in skipped:
+        a = arp_for(u["name"])
+        u["icon_src"] = a["icon"] if a else ""
+    icon_ids = extract_icons([x.get("icon_src", "") for x in items + unchecked])
+    for x in items + unchecked:
+        x["path"] = icon_ids.get(x.pop("icon_src", "") or "")
     unchecked.sort(key=lambda u: u["name"].lower())
     return items, unchecked
 
@@ -563,7 +692,21 @@ def update_one(item):
                 state["jobs"][jid]["log"] = "\n".join(lines)[-6000:]
 
     ok, reason = False, None
-    if not item.get("token"):
+    reopen_paths = []
+    procs = running_in(item.get("location", ""))
+    if procs:
+        set_progress(jid, phase="closing", pct=1)
+        log(t("closing", x=item["name"]))
+        if close_apps(procs, log):
+            icon = (arp_for(item["name"]) or {}).get("icon", "").lower()
+            # si riaprono le finestre e l'exe principale (per i programmi dell'area di notifica)
+            reopen_paths = sorted({p["path"] for p in procs if p["window"] or p["path"].lower() == icon})
+        else:
+            log(t("app_open", x=item["name"]))
+            item = {**item, "token": None, "_blocked": True}
+    if item.get("_blocked"):
+        pass
+    elif not item.get("token"):
         log(t("id_cut", x=item["id"]))
     else:
         cmd = [WINGET, "upgrade", "--id", item["token"], "--exact", "--silent", "--include-unknown",
@@ -598,6 +741,9 @@ def update_one(item):
                 log(t("need_admin"))
         except Exception as e:
             log(str(e))
+    if reopen_paths:
+        set_progress(jid, phase="reopening", pct=98)
+        reopen(reopen_paths)
     with lock:
         if ok:
             state["jobs"][jid]["status"] = "done"
@@ -728,7 +874,14 @@ def scheduled_check():
 def auto_update():
     if not start_scan_sync():
         return
-    ids = [i["id"] for i in visible_pending() if not i.get("major") and i.get("verified") is not False]
+    ids, postponed = [], []
+    for i in visible_pending():
+        if i.get("major") or i.get("verified") is False:
+            continue
+        if running_in(i.get("location", "")):
+            postponed.append(i["name"])   # mai chiudere un programma mentre lo stai usando
+        else:
+            ids.append(i["id"])
     if ids:
         with lock:
             if state["running"] or state["scanning"]:
@@ -739,14 +892,16 @@ def auto_update():
         updated = [i["name"] for i in state["items"] if i["id"] in ids and i.get("updated")]
         failed = [i["name"] for i in state["items"] if i["id"] in ids and not i.get("updated")]
     s = load_settings()
-    s["last_auto"] = {"at": time.time(), "updated": updated, "failed": failed, "postponed": []}
+    s["last_auto"] = {"at": time.time(), "updated": updated, "failed": failed, "postponed": postponed}
     save_settings(s)
-    if updated or failed:
+    if updated or failed or postponed:
         parts = []
         if updated:
             parts.append(t("upd_ok", len(updated)))
         if failed:
             parts.append(t("upd_fail", len(failed)))
+        if postponed:
+            parts.append(t("upd_postponed", len(postponed)))
         lc = s.get("last_cleanup") or {}
         if lc.get("freed"):
             parts.append(t("freed", x=human(lc["freed"])))
@@ -801,7 +956,8 @@ def check_self_update(force=False):
         info["checked_at"] = time.time()
     if DEMO:
         with lock:
-            state["self"].update(latest="0.2.0", url=f"https://github.com/{REPO}/releases", notes="Demo")
+            # in demo nessuna versione finta da installare: confonderebbe chi prova il programma
+            state["self"].update(latest=VERSION, url=f"https://github.com/{REPO}/releases", notes="Demo")
         return
     try:
         req = urllib.request.Request(RELEASES_API, headers={"User-Agent": "AggiornamentiWin",
@@ -966,6 +1122,12 @@ class Handler(BaseHTTPRequestHandler):
         if u.path == "/api/state":
             return self.send(200, self.snapshot())
         if u.path == "/api/icon":
+            from urllib.parse import parse_qs
+            key = parse_qs(u.query).get("path", [""])[0]
+            f = os.path.join(ICONS, key + ".png")
+            if re.fullmatch(r"[0-9a-f]{16}", key) and os.path.exists(f):
+                with open(f, "rb") as fh:
+                    return self.send(200, fh.read(), "image/png")
             return self.send(404, b"", "image/png")
         self.send(404, {"error": "not found"})
 
@@ -1052,6 +1214,8 @@ class Handler(BaseHTTPRequestHandler):
                     h, m = map(int, s[tkey].split(":"))
                     passed = now >= now.replace(hour=h, minute=m, second=0, microsecond=0)
                     s[dkey] = now.date().isoformat() if passed else None
+            if "welcomed" in body:
+                s["welcomed"] = bool(body["welcomed"])
             save_settings(s)
             if "login" in body:
                 if body["login"] and not is_admin() and not DEMO:
@@ -1124,7 +1288,15 @@ def main():
     for d in glob.glob(os.path.join(CACHE, "agg-*")):
         shutil.rmtree(d, ignore_errors=True)
     print(f"Aggiornamenti su {PAGE_URL}", flush=True)
-    srv.serve_forever()
+    if DEMO:
+        return srv.serve_forever()
+    # icona vicino all'orologio nel thread principale, server in un thread a parte
+    sys.modules.setdefault("server", sys.modules[__name__])   # tray importa "server": stesso stato
+    import tray
+    threading.Thread(target=srv.serve_forever, daemon=True).start()
+    if not tray.run(on_quit=lambda: os._exit(0)):
+        while True:
+            time.sleep(3600)
 
 
 if __name__ == "__main__":

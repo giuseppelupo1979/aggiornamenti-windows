@@ -27,18 +27,13 @@ La prima volta Windows mostra quasi sicuramente una schermata blu **"PC protetto
 
 <img src="docs/smartscreen.png" alt="Avviso PC protetto da Windows: clicca Ulteriori informazioni, poi Esegui comunque" width="420">
 
-### 3. Fatto
+### 3. Tre scelte e sei pronto
 
-Si apre la finestra di Aggiornamenti e parte subito il controllo. Il programma si è già installato da solo: lo ritrovi nel **menu Start** e sul **Desktop**, puoi cancellare il file dalla cartella Download.
+Si apre la finestra di **benvenuto**. Lascia spuntato **Aggiornamenti senza domande**, premi **Inizia** e rispondi **Sì** alla richiesta di Windows: è l'unica volta che te lo chiede. Da quel momento i programmi si aggiornano in silenzio e Aggiornamenti parte da solo all'accensione del PC.
 
-### Consigliato: attiva i privilegi di amministratore
+Il programma si è già installato da solo: lo ritrovi nel **menu Start**, sul **Desktop** e come icona vicino all'orologio. Puoi cancellare il file dalla cartella Download.
 
-Molti programmi, per aggiornarsi, chiedono a Windows il permesso dell'amministratore ("Vuoi consentire a questa app di apportare modifiche?"). Per non dover rispondere ogni volta:
-
-1. in fondo alla finestra apri **Privilegi di amministratore non attivi**;
-2. premi **Attiva** e rispondi **Sì** a Windows, una volta sola.
-
-Da quel momento gli aggiornamenti si installano in silenzio e Aggiornamenti parte da solo all'accensione del PC per fare il controllo quotidiano.
+Hai saltato la scelta o vuoi cambiarla? In fondo alla finestra trovi **Privilegi di amministratore** e **Controllo automatico**.
 
 ---
 
@@ -48,6 +43,8 @@ Da quel momento gli aggiornamenti si installano in silenzio e Aggiornamenti part
 - I programmi segnati **versione maggiore** (un grande salto di versione) non vengono selezionati da soli: aggiornali solo se sai che ti serve.
 - Passando sopra un programma compare **Escludi**: non verrà più proposto. Lo ritrovi in fondo, nella sezione *Escluse*.
 - In **Controllo automatico** puoi farti avvisare ogni giorno con una notifica, oppure lasciare che aggiorni tutto da solo di notte.
+- Se un programma da aggiornare è aperto, Aggiornamenti lo chiude, lo aggiorna e lo riapre. Se ha un documento non salvato non lo chiude: te lo segnala.
+- L'**icona vicino all'orologio** mostra un pallino quando ci sono aggiornamenti; cliccala per aprire la finestra o per controllare subito.
 - Quando esce una nuova versione di Aggiornamenti stesso, compare un riquadro in alto con il pulsante **Installa**.
 
 ---

@@ -121,6 +121,13 @@
   .notice .meta { white-space: normal; }
   .act.link { opacity: 1; text-decoration: none; }
   .reason { white-space: normal; }
+  .welcome { position: fixed; inset: 0; background: rgba(0,0,0,.55); display: grid; place-items: center; z-index: 10; padding: 16px; }
+  .welcome .card { background: var(--bg); border: 1px solid var(--line); border-radius: 18px; padding: 32px; max-width: 520px; width: 100%; }
+  .welcome h2 { font-size: 26px; font-weight: 600; letter-spacing: -.01em; color: var(--fg); text-transform: none; margin: 0 0 8px; }
+  .welcome p { color: var(--muted); margin: 0 0 22px; font-size: 14px; }
+  .welcome .opt { align-items: flex-start; margin-bottom: 16px; }
+  .welcome .opt small { display: block; color: var(--muted); font-size: 13px; margin-top: 2px; }
+  .welcome .go { display: flex; justify-content: flex-end; margin-top: 24px; }
   .notice.self { border-color: var(--fg); }
   .notice .links { display: flex; gap: 12px; align-items: center; flex-shrink: 0; }
   .notice .links a { color: var(--muted); font-size: 13px; }
@@ -175,6 +182,7 @@
   </header>
 
   <div id="overall"></div>
+  <div id="welcome"></div>
   <div id="list"></div>
 
   <footer>
@@ -255,7 +263,12 @@ const I18N = {
     selfAvail: v => `È disponibile Aggiornamenti ${v}`, selfCurrent: (v, via) => via ? `Hai la versione ${v}, installata ${via}.` : `Hai la versione ${v}.`,
     selfInstall: "Installa", selfUpdating: v => `Installazione di Aggiornamenti ${v}…`,
     selfRestarting: "Riavvio in corso, la pagina si ricarica da sola…", selfFailed: "Installazione non riuscita.",
-    selfLog: "Dettagli", selfVia: { brew: "tramite Homebrew", git: "tramite git", archive: "dall'archivio su GitHub" },
+    selfLog: "Dettagli", selfVia: { brew: "tramite Homebrew", git: "tramite git", archive: "dall'archivio su GitHub", exe: "" },
+    wTitle: "Benvenuto in Aggiornamenti", wIntro: "Tre scelte e sei pronto. Puoi cambiarle quando vuoi in fondo alla finestra.",
+    wAdmin: "Aggiornamenti senza domande", wAdminSub: "Windows chiederà conferma una volta sola; poi gli aggiornamenti si installano in silenzio e il programma parte all'accensione.",
+    wDaily: "Controllo ogni mattina alle 9", wDailySub: "Una notifica ti avvisa se c'è qualcosa da aggiornare.",
+    wNightly: "Aggiorna da solo di notte", wNightlySub: "Alle 3 aggiorna i programmi chiusi; quelli aperti li rimanda.",
+    wGo: "Inizia",
   },
   en: {
     title: "Aggiornamenti", check: "Check", update: "Update", updateAll: "Update all", updateN: n => `Update (${n})`,
@@ -299,7 +312,12 @@ const I18N = {
     selfAvail: v => `Aggiornamenti ${v} is available`, selfCurrent: (v, via) => via ? `You have version ${v}, installed ${via}.` : `You have version ${v}.`,
     selfInstall: "Install", selfUpdating: v => `Installing Aggiornamenti ${v}…`,
     selfRestarting: "Restarting, the page will reload by itself…", selfFailed: "Installation failed.",
-    selfLog: "Details", selfVia: { brew: "via Homebrew", git: "via git", archive: "from the GitHub archive" },
+    selfLog: "Details", selfVia: { brew: "via Homebrew", git: "via git", archive: "from the GitHub archive", exe: "" },
+    wTitle: "Welcome to Aggiornamenti", wIntro: "Three choices and you're set. You can change them any time at the bottom of the window.",
+    wAdmin: "Updates without prompts", wAdminSub: "Windows asks once; then updates install silently and the program starts with your PC.",
+    wDaily: "Check every morning at 9", wDailySub: "A notification tells you when something needs updating.",
+    wNightly: "Update by itself at night", wNightlySub: "At 3 AM it updates closed programs and postpones open ones.",
+    wGo: "Start",
   },
 };
 const forced = new URLSearchParams(location.search).get("lang");
@@ -484,6 +502,28 @@ function selfBanner() {
     ${s.status === "error" && selfLogOpen && s.log ? `<pre class="log">${esc(s.log)}</pre>` : ""}</div><div class="links">${right}</div></div>`;
 }
 
+let welcomeShown = false;
+function renderWelcome() {
+  const st = data.settings;
+  if (!st || st.welcomed || data.demo || welcomeShown) return;
+  welcomeShown = true;
+  $("#welcome").innerHTML = `<div class="welcome"><div class="card">
+    <h2>${L.wTitle}</h2><p>${L.wIntro}</p>
+    ${data.admin ? "" : `<label class="opt"><input type="checkbox" id="w_admin" checked><span>${L.wAdmin}<small>${L.wAdminSub}</small></span></label>`}
+    <label class="opt"><input type="checkbox" id="w_daily" checked><span>${L.wDaily}<small>${L.wDailySub}</small></span></label>
+    <label class="opt"><input type="checkbox" id="w_nightly"><span>${L.wNightly}<small>${L.wNightlySub}</small></span></label>
+    <div class="go"><button type="button" class="primary" id="w_go">${L.wGo}</button></div></div></div>`;
+  $("#w_go").onclick = async () => {
+    const admin = $("#w_admin") && $("#w_admin").checked;
+    try {
+      data = await api("/api/settings", { welcomed: true, daily_check: $("#w_daily").checked, auto_update: $("#w_nightly").checked });
+      if (admin) await api("/api/elevate", {});
+    } catch (e) { alert(e.message); }
+    $("#welcome").innerHTML = "";
+    render();
+  };
+}
+
 function render() {
   const busy = data.scanning || data.running;
   const items = data.items;
@@ -508,6 +548,7 @@ function render() {
     : `${L.available(todo.length)} · ${ago(data.scanned_at)}`;
 
   renderOverall();
+  renderWelcome();
   $("#scan").disabled = busy;
   const n = selected.size;
   const nMain = todo.filter(i => selected.has(i.id)).length;

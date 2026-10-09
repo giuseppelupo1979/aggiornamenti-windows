@@ -2,6 +2,17 @@
 
 Tutte le modifiche rilevanti al progetto. Le versioni seguono il [versionamento semantico](https://semver.org/lang/it/).
 
+## [0.2.0] - 2026-10-09
+
+### Aggiunto
+- Schermata di benvenuto al primo avvio con tre scelte: aggiornamenti senza domande (attiva i privilegi con una sola conferma di Windows), controllo ogni mattina, aggiornamento notturno.
+- Icone vere dei programmi, estratte dai programmi installati.
+- Icona vicino all'orologio con il numero di aggiornamenti disponibili (pallino sull'icona) e il menu Apri · Controlla ora · Esci.
+- Chiusura e riapertura automatica dei programmi aperti durante l'aggiornamento: prima si chiude la finestra, i programmi che vivono solo nell'area di notifica vengono fermati, e dopo l'aggiornamento si riaprono senza privilegi di amministratore. Un programma con finestra che non si chiude (per esempio con un documento da salvare) non viene forzato. Di notte i programmi aperti vengono rimandati. *Ancora da verificare su un caso reale.*
+
+### Corretto
+- La modalità demo mostrava un finto avviso di nuova versione.
+
 ## [0.1.2] - 2026-10-09
 
 ### Migliorato
