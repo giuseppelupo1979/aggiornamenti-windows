@@ -1,0 +1,23 @@
+# Changelog
+
+Tutte le modifiche rilevanti al progetto. Le versioni seguono il [versionamento semantico](https://semver.org/lang/it/).
+
+## [0.1.0] - 2026-10-09
+
+Prima versione, derivata da [Aggiornamenti per Mac](https://github.com/giuseppelupo1979/aggiornamenti-mac) 1.8.2.
+
+### Aggiunto
+- `Aggiornamenti.exe` in un unico file per x64 e ARM64, costruito da GitHub Actions a ogni versione con codice SHA-256 di controllo e una prova automatica di avvio.
+- Installazione al primo avvio: copia nella cartella utente, collegamenti nel menu Start e sul Desktop, voce in Impostazioni → App con disinstallazione, nome e icona propri per le notifiche.
+- Interfaccia nella finestra applicazione di Microsoft Edge, tema sempre scuro.
+- Ricerca degli aggiornamenti con winget (repository winget e Microsoft Store), unendo i risultati delle due interrogazioni perché winget a volte omette pacchetti; identificativi completi letti da `winget export` quando la tabella li tronca.
+- Aggiornamento silenzioso con barra di avanzamento e fasi (download, verifica, installazione).
+- Privilegi di amministratore attivabili con una sola conferma di Windows, tramite un'attività pianificata che avvia il programma all'accesso: nessuna password salvata.
+- Esclusioni, controllo giornaliero con notifica, aggiornamento notturno, pulizia degli installer scaricati, sezione delle app non controllate, avviso degli aggiornamenti di Windows, avviso e installazione delle nuove versioni del programma, modalità demo, italiano e inglese.
+
+### Corretto durante le prove sulla VM Windows 11 ARM64
+- Il server in background riusava la cartella temporanea del lanciatore e, chiuso il lanciatore, la pagina spariva.
+- L'output di winget catturato arriva nella codifica OEM della console: lettere accentate e "…" degli identificativi troncati venivano storpiati.
+- La finestra di benvenuto di Edge compariva usando un profilo separato.
+- Microsoft Edge veniva proposto ma winget non può aggiornarlo (si aggiorna da solo): ora è escluso, e per gli altri casi simili compare una spiegazione comprensibile.
+- La ricerca degli aggiornamenti di Windows falliva per un problema di virgolette.

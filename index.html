@@ -1,0 +1,650 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Aggiornamenti</title>
+<style>
+  /* tema sempre scuro */
+  :root {
+    color-scheme: dark;
+    --bg: #161617;
+    --fg: #f5f5f7;
+    --muted: #8e8e93;
+    --line: #2a2a2c;
+    --accent: #f5f5f7;
+    --accent-fg: #161617;
+    --ok: #5fbf85;
+    --err: #ff6b5e;
+    --hover: #1e1e20;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; background: var(--bg); color: var(--fg); }
+  body {
+    font: 15px/1.45 "Segoe UI Variable Text", "Segoe UI", system-ui, -apple-system, sans-serif;
+    -webkit-font-smoothing: antialiased;
+  }
+  main { max-width: 720px; margin: 0 auto; padding: 72px 16px 96px; }
+
+  header { display: flex; align-items: flex-end; justify-content: space-between; gap: 24px; margin-bottom: 40px; }
+  h1 { font-size: 34px; font-weight: 600; letter-spacing: -0.02em; margin: 0 0 6px; }
+  .sub { color: var(--muted); font-size: 14px; margin: 0; }
+  .actions { display: flex; gap: 10px; flex-shrink: 0; }
+
+  button {
+    font: inherit; font-size: 14px; border-radius: 999px; padding: 8px 18px; cursor: pointer;
+    border: 1px solid var(--line); background: transparent; color: var(--fg);
+    transition: opacity .15s, background .15s;
+  }
+  button:hover:not(:disabled) { background: var(--hover); }
+  button.primary { background: var(--accent); color: var(--accent-fg); border-color: var(--accent); }
+  button.primary:hover:not(:disabled) { background: var(--accent); opacity: .85; }
+  button:disabled { opacity: .35; cursor: default; }
+
+  .bar { display: flex; align-items: center; justify-content: space-between; padding: 0 4px 12px; border-bottom: 1px solid var(--line); color: var(--muted); font-size: 13px; }
+  .bar label { display: flex; align-items: center; gap: 10px; cursor: pointer; }
+
+  h2 { font-size: 12px; font-weight: 500; text-transform: uppercase; letter-spacing: .08em; color: var(--muted); margin: 36px 4px 4px; }
+
+  ul { list-style: none; margin: 0; padding: 0; }
+  li { border-bottom: 1px solid var(--line); }
+  .row { display: grid; grid-template-columns: 20px 36px 1fr auto; align-items: center; gap: 14px; padding: 14px 4px; cursor: pointer; }
+  .row:hover { background: var(--hover); }
+  .icon { width: 36px; height: 36px; border-radius: 8px; object-fit: contain; }
+  .icon.blank { background: var(--line); border-radius: 9px; }
+  .icon.term { display: grid; place-items: center; font: 600 15px "Segoe UI Variable", "Segoe UI", system-ui, sans-serif; color: var(--fg); background: var(--hover); border: 1px solid var(--line); border-radius: 9px; }
+  .name { font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .meta { color: var(--muted); font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .meta .arrow { margin: 0 4px; }
+  .tag { font-size: 11px; color: var(--muted); border: 1px solid var(--line); border-radius: 999px; padding: 1px 7px; margin-left: 8px; vertical-align: 1px; font-weight: 400; }
+  .status { font-size: 13px; color: var(--muted); text-align: right; min-width: 80px; }
+  .status.done { color: var(--ok); }
+  .status.error { color: var(--err); cursor: pointer; }
+  li.done .name, li.done .meta { opacity: .5; }
+
+  input[type=checkbox] {
+    appearance: none; width: 18px; height: 18px; margin: 0; border: 1.5px solid var(--muted);
+    border-radius: 50%; cursor: pointer; display: grid; place-items: center; transition: all .15s;
+  }
+  input[type=checkbox]:checked { background: var(--accent); border-color: var(--accent); }
+  input[type=checkbox]:checked::after {
+    content: ""; width: 5px; height: 9px; border: solid var(--accent-fg); border-width: 0 1.5px 1.5px 0;
+    transform: translateY(-1px) rotate(45deg);
+  }
+  input[type=checkbox]:disabled { opacity: .3; cursor: default; }
+
+  .progress { grid-column: 3 / 5; margin-top: -4px; }
+  .track { height: 3px; border-radius: 3px; background: var(--line); overflow: hidden; position: relative; }
+  .fill { height: 100%; background: var(--fg); border-radius: 3px; transition: width .4s ease; }
+  .track.indeterminate .fill { width: 30% !important; position: absolute; animation: slide 1.4s ease-in-out infinite; }
+  @keyframes slide { from { left: -30%; } to { left: 100%; } }
+  .phase { font-size: 12px; color: var(--muted); margin-top: 6px; display: flex; justify-content: space-between; gap: 12px; }
+  .phase span:last-child { font-variant-numeric: tabular-nums; }
+  .overall { margin: -12px 0 36px; }
+  .overall .phase { margin-top: 8px; }
+
+  .act { font-size: 12px; color: var(--muted); margin-left: 12px; opacity: 0; transition: opacity .15s; cursor: pointer; }
+  .act:hover { color: var(--fg); text-decoration: underline; text-underline-offset: 3px; }
+  .row:hover .act { opacity: 1; }
+  @media (hover: none) { .act { opacity: 1; } }
+  .row.static { cursor: default; }
+  .row.static:hover { background: transparent; }
+  details.excluded { margin-top: 48px; }
+  details.excluded summary {
+    cursor: pointer; list-style: none; font-size: 12px; font-weight: 500; text-transform: uppercase;
+    letter-spacing: .08em; color: var(--muted); padding: 0 4px 10px; border-bottom: 1px solid var(--line);
+  }
+  details.excluded summary::-webkit-details-marker { display: none; }
+  details.excluded summary::before { content: "›"; display: inline-block; width: 14px; transition: transform .15s; }
+  details.excluded[open] summary::before { transform: rotate(90deg); }
+  details.excluded summary .muted { text-transform: none; letter-spacing: 0; font-weight: 400; }
+  details.excluded .note { color: var(--muted); font-size: 13px; margin: 14px 4px 4px; }
+
+  .settings { margin-top: 14px; display: grid; gap: 10px; max-width: 600px; }
+  .opt { display: flex; gap: 12px; align-items: center; color: var(--fg); font-size: 14px; cursor: pointer; }
+  .opt input[type=checkbox] { flex-shrink: 0; }
+  .opt input[type=time] {
+    font: inherit; font-size: 14px; color: var(--fg); background: transparent; border: 1px solid var(--line);
+    border-radius: 999px; padding: 2px 10px; margin: 0 2px; color-scheme: light dark;
+  }
+  .hint { margin: 0 0 4px 30px !important; font-size: 13px; }
+  .hint:empty { display: none; }
+  .hint.warn { color: var(--err); }
+  .settings-actions { margin-left: 30px; }
+  footer details + details { margin-top: 18px; }
+  .version { margin-top: 32px !important; font-size: 12px; }
+  .version a { color: var(--muted); }
+  .notice {
+    display: flex; justify-content: space-between; align-items: center; gap: 16px; padding: 14px 16px;
+    border: 1px solid var(--line); border-radius: 12px; margin-bottom: 28px; font-size: 14px;
+  }
+  .notice .meta { white-space: normal; }
+  .act.link { opacity: 1; text-decoration: none; }
+  .reason { white-space: normal; }
+  .notice.self { border-color: var(--fg); }
+  .notice .links { display: flex; gap: 12px; align-items: center; flex-shrink: 0; }
+  .notice .links a { color: var(--muted); font-size: 13px; }
+  .notice pre.log { margin: 12px 0 0; }
+
+  pre.log {
+    margin: 0 4px 14px 74px; padding: 12px 14px; font: 12px/1.5 ui-monospace, "SF Mono", Menlo, monospace;
+    color: var(--muted); background: var(--hover); border-radius: 8px; white-space: pre-wrap; word-break: break-word;
+    max-height: 220px; overflow: auto;
+  }
+
+  .spin { display: inline-block; width: 12px; height: 12px; border: 1.5px solid var(--line); border-top-color: var(--fg); border-radius: 50%; animation: s .8s linear infinite; vertical-align: -1px; margin-right: 6px; }
+  @keyframes s { to { transform: rotate(360deg); } }
+
+  .empty { text-align: center; color: var(--muted); padding: 96px 0; }
+  .empty strong { display: block; color: var(--fg); font-size: 17px; font-weight: 500; margin-bottom: 6px; }
+
+  footer { margin-top: 56px; color: var(--muted); font-size: 13px; }
+  footer details summary { cursor: pointer; list-style: none; }
+  footer details summary::-webkit-details-marker { display: none; }
+  footer form { display: flex; gap: 10px; margin-top: 14px; flex-wrap: wrap; align-items: center; }
+  footer input[type=password] {
+    font: inherit; font-size: 14px; padding: 8px 14px; border-radius: 999px; border: 1px solid var(--line);
+    background: transparent; color: var(--fg); width: 240px; outline: none;
+  }
+  footer input[type=password]:focus { border-color: var(--muted); }
+  footer p { margin: 10px 0 0; max-width: 560px; }
+  .dot { display: inline-block; width: 6px; height: 6px; border-radius: 50%; margin-right: 8px; vertical-align: 1px; background: var(--muted); }
+  .dot.on { background: var(--ok); }
+
+  @media (max-width: 600px) {
+    .progress { grid-column: 1 / 4; }
+    main { padding-top: 40px; }
+    header { flex-direction: column; align-items: flex-start; }
+    .row { grid-template-columns: 20px 32px 1fr; }
+    .status { grid-column: 3; text-align: left; min-width: 0; }
+    pre.log { margin-left: 4px; }
+  }
+</style>
+</head>
+<body>
+<main>
+  <header>
+    <div>
+      <h1 data-t="title"></h1>
+      <p class="sub" id="sub"></p>
+    </div>
+    <div class="actions">
+      <button id="scan" data-t="check"></button>
+      <button id="go" class="primary" disabled></button>
+    </div>
+  </header>
+
+  <div id="overall"></div>
+  <div id="list"></div>
+
+  <footer>
+    <details id="settings">
+      <summary><span class="dot" id="autodot"></span><span id="autolabel"></span></summary>
+      <div class="settings">
+        <label class="opt"><input type="checkbox" id="s_daily"> <span><span data-t="dailyA"></span> <input type="time" id="s_check_time"> <span data-t="dailyB"></span></span></label>
+        <label class="opt"><input type="checkbox" id="s_auto"> <span><span data-t="nightly"></span> <input type="time" id="s_auto_time"></span></label>
+        <p class="hint" data-t="nightlyHint"></p>
+        <label class="opt"><input type="checkbox" id="s_login"> <span data-t="login"></span></label>
+        <p class="hint" id="loginhint"></p>
+        <p class="hint" id="lastauto"></p>
+        <div class="settings-actions"><button type="button" id="s_test" data-t="testNotif"></button> <button type="button" id="s_clean" data-t="cleanNow"></button></div>
+        <p class="hint" id="lastclean"></p>
+      </div>
+    </details>
+    <details>
+      <summary><span class="dot" id="pwdot"></span><span id="pwlabel"></span></summary>
+      <form id="pwform" autocomplete="off">
+        <button type="button" id="elevate" data-t="adminEnable"></button>
+      </form>
+      <p data-t="pwHelp"></p>
+      <p id="pwmsg"></p>
+    </details>
+    <p class="version" id="version"></p>
+  </footer>
+</main>
+
+<script>
+const $ = s => document.querySelector(s);
+let data = { items: [], jobs: {} };
+const selected = new Set();
+const openLogs = new Set();
+let firstLoad = true;
+
+// ---------------------------------------------------------------- lingue
+
+const I18N = {
+  it: {
+    title: "Aggiornamenti", check: "Controlla", update: "Aggiorna", updateAll: "Aggiorna tutto", updateN: n => `Aggiorna (${n})`,
+    scanning: "Controllo in corso…", cleaning: "Pulizia della cache…", updating: "Aggiornamento in corso…", error: "Errore: ",
+    allUpToDate: "Tutto aggiornato", noneNeeded: "Nessuna app ha bisogno di aggiornamenti.",
+    available: n => n === 1 ? "1 aggiornamento disponibile" : `${n} aggiornamenti disponibili`,
+    now: "adesso", minAgo: n => `${n} min fa`, of: "di",
+    selectAll: "Seleziona tutto", apps: "Applicazioni", cli: "Strumenti da riga di comando",
+    done: "Aggiornata", failed: "Non riuscito", queued: "In coda", inProgress: "In corso",
+    exclude: "Escludi", include: "Includi", major: "versione maggiore", unverified: "da verificare",
+    phases: { prepare: "Preparazione", download: "Download", unpack: "Apertura del pacchetto", verify: "Verifica della firma",
+              install: "Installazione", replace: "Sostituzione della versione precedente", finish: "Rifinitura",
+              closing: "Chiusura dell'app", reopening: "Riapertura dell'app" },
+    sources: { winget: "winget", msstore: "Microsoft Store" },
+    reasons: { no_catalog_version: "Il catalogo Homebrew non indica il numero di versione", no_app_version: "L'app non dichiara la sua versione",
+               insecure_feed: "Canale di aggiornamento non sicuro (http)", no_source: "Nessuna fonte di aggiornamento conosciuta",
+               feed_down: "Il sito dello sviluppatore non ha risposto", feed_empty: "Il canale di aggiornamento non contiene versioni leggibili" },
+    macos: "Aggiornamenti di Windows disponibili", openSettings: "Apri Windows Update", system: "Componenti di sistema",
+    excluded: "Escluse", withUpdate: n => `(${n} con aggiornamento)`,
+    excludedNote: "Queste app non compaiono nell'elenco principale e non vengono mai selezionate in automatico. Puoi comunque aggiornarle da qui quando serve.",
+    noUpdate: "Nessun aggiornamento",
+    unchecked: "Non controllate",
+    uncheckedNote: "Per queste app non esiste una fonte di aggiornamento che il programma sappia leggere: non è detto che siano aggiornate. Controllale ogni tanto dal menu dell'app o dal sito dello sviluppatore.",
+    unknownVersion: "versione sconosciuta", search: "Cerca",
+    dailyA: "Controlla ogni giorno alle", dailyB: "e avvisami con una notifica", nightly: "Aggiorna da solo ogni notte alle",
+    nightlyHint: "Di notte vengono aggiornate solo le app non escluse, senza versioni maggiori né abbinamenti da verificare. Le app aperte non vengono mai chiuse: si rimandano al giro successivo. Se il Mac dorme all'ora prevista, il controllo parte appena si risveglia.",
+    login: "Avvia Aggiornamenti all'accesso (con i privilegi di amministratore)", testNotif: "Prova una notifica", cleanNow: "Libera spazio ora",
+    autoOff: "Controllo automatico disattivato", autoNightly: t => `Aggiornamento automatico ogni notte alle ${t}`, autoDaily: t => `Controllo automatico ogni giorno alle ${t}`,
+    loginWarn: "Il controllo automatico funziona solo mentre Aggiornamenti è attivo: attiva l'avvio all'accesso perché resti attivo anche dopo un riavvio.",
+    cleanInfo: "Dopo ogni giro di aggiornamenti installer e vecchie versioni vengono cancellati.",
+    cleanLast: (a, x) => `Ultima pulizia: ${a}, liberati ${x}.`, cleanRunning: "Pulizia in corso…",
+    lastAuto: (a, n) => `Ultimo aggiornamento automatico: ${a} · ${n} aggiornate`,
+    lastAutoFailed: (n, l) => `, ${n} non riuscite (${l})`, lastAutoPostponed: l => `, rimandate perché aperte: ${l}`,
+    pwSet: "Privilegi di amministratore attivi", pwUnset: "Privilegi di amministratore non attivi",
+    adminEnable: "Attiva", adminAsk: "Conferma la richiesta di Windows: il programma ripartirà con i privilegi e da allora partirà da solo a ogni accesso.",
+    pwHelp: "Molti installer di Windows chiedono i privilegi di amministratore. Attivandoli una volta (una sola conferma di Windows) gli aggiornamenti si completano in silenzio. Nessuna password viene salvata: Windows avvia il programma con i privilegi tramite un'attività pianificata.",
+    version: "Versione", news: "Novità", demo: "Modalità demo: nessuna modifica al sistema",
+    selfAvail: v => `È disponibile Aggiornamenti ${v}`, selfCurrent: (v, via) => via ? `Hai la versione ${v}, installata ${via}.` : `Hai la versione ${v}.`,
+    selfInstall: "Installa", selfUpdating: v => `Installazione di Aggiornamenti ${v}…`,
+    selfRestarting: "Riavvio in corso, la pagina si ricarica da sola…", selfFailed: "Installazione non riuscita.",
+    selfLog: "Dettagli", selfVia: { brew: "tramite Homebrew", git: "tramite git", archive: "dall'archivio su GitHub" },
+  },
+  en: {
+    title: "Aggiornamenti", check: "Check", update: "Update", updateAll: "Update all", updateN: n => `Update (${n})`,
+    scanning: "Checking…", cleaning: "Cleaning the cache…", updating: "Updating…", error: "Error: ",
+    allUpToDate: "Everything is up to date", noneNeeded: "No app needs updating.",
+    available: n => n === 1 ? "1 update available" : `${n} updates available`,
+    now: "just now", minAgo: n => `${n} min ago`, of: "of",
+    selectAll: "Select all", apps: "Applications", cli: "Command-line tools",
+    done: "Updated", failed: "Failed", queued: "Queued", inProgress: "In progress",
+    exclude: "Exclude", include: "Include", major: "major version", unverified: "unverified",
+    phases: { prepare: "Preparing", download: "Downloading", unpack: "Opening the package", verify: "Checking the signature",
+              install: "Installing", replace: "Replacing the previous version", finish: "Finishing",
+              closing: "Quitting the app", reopening: "Reopening the app" },
+    sources: { winget: "winget", msstore: "Microsoft Store" },
+    reasons: { no_catalog_version: "The Homebrew catalog has no version number", no_app_version: "The app does not declare its version",
+               insecure_feed: "Insecure update feed (http)", no_source: "No known update source",
+               feed_down: "The developer's website did not respond", feed_empty: "The update feed has no readable versions" },
+    macos: "Windows updates available", openSettings: "Open Windows Update", system: "System components",
+    excluded: "Excluded", withUpdate: n => `(${n} with an update)`,
+    excludedNote: "These apps are hidden from the main list and never selected automatically. You can still update them from here when you need to.",
+    noUpdate: "No update",
+    unchecked: "Not checked",
+    uncheckedNote: "There is no update source the program can read for these apps, so they may be out of date. Check them now and then from the app's menu or the developer's website.",
+    unknownVersion: "unknown version", search: "Search",
+    dailyA: "Check every day at", dailyB: "and notify me", nightly: "Update automatically every night at",
+    nightlyHint: "At night only apps that are not excluded are updated, skipping major versions and unverified matches. Open apps are never quit: they wait for the next run. If the Mac is asleep at that time, the check runs as soon as it wakes up.",
+    login: "Start Aggiornamenti at login (with administrator rights)", testNotif: "Send a test notification", cleanNow: "Free up space now",
+    autoOff: "Automatic check off", autoNightly: t => `Automatic update every night at ${t}`, autoDaily: t => `Automatic check every day at ${t}`,
+    loginWarn: "Automatic checks only run while Aggiornamenti is running: turn on start at login so it keeps running after a restart.",
+    cleanInfo: "After every round of updates, installers and old versions are deleted.",
+    cleanLast: (a, x) => `Last cleanup: ${a}, ${x} freed.`, cleanRunning: "Cleaning…",
+    lastAuto: (a, n) => `Last automatic update: ${a} · ${n} updated`,
+    lastAutoFailed: (n, l) => `, ${n} failed (${l})`, lastAutoPostponed: l => `, postponed because in use: ${l}`,
+    pwSet: "Administrator rights on", pwUnset: "Administrator rights off",
+    adminEnable: "Turn on", adminAsk: "Confirm Windows' prompt: the program restarts with administrator rights and from then on starts by itself at login.",
+    pwHelp: "Many Windows installers ask for administrator rights. Turn them on once (a single Windows prompt) and updates finish silently. No password is stored: Windows starts the program with those rights through a scheduled task.",
+    version: "Version", news: "What's new", demo: "Demo mode: no changes to your system",
+    selfAvail: v => `Aggiornamenti ${v} is available`, selfCurrent: (v, via) => via ? `You have version ${v}, installed ${via}.` : `You have version ${v}.`,
+    selfInstall: "Install", selfUpdating: v => `Installing Aggiornamenti ${v}…`,
+    selfRestarting: "Restarting, the page will reload by itself…", selfFailed: "Installation failed.",
+    selfLog: "Details", selfVia: { brew: "via Homebrew", git: "via git", archive: "from the GitHub archive" },
+  },
+};
+const forced = new URLSearchParams(location.search).get("lang");
+let lang = forced || (navigator.language || "en").slice(0, 2);
+let L = I18N[lang] || I18N.en;
+function setLang(code) {
+  if (forced || !code) return;
+  lang = code; L = I18N[lang] || I18N.en;
+}
+function applyStatic() {
+  document.documentElement.lang = lang;
+  document.querySelectorAll("[data-t]").forEach(el => { el.textContent = L[el.dataset.t]; });
+  document.title = L.title;
+}
+const locale = () => lang === "it" ? "it-IT" : "en-US";
+
+async function api(path, body) {
+  const r = await fetch(path, body === undefined ? {} : {
+    method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body)
+  });
+  const j = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(j.error || r.statusText);
+  return j;
+}
+
+function ago(t) {
+  if (!t) return "";
+  const s = Math.round(Date.now() / 1000 - t);
+  if (s < 60) return L.now;
+  if (s < 3600) return L.minAgo(Math.floor(s / 60));
+  return new Date(t * 1000).toLocaleString(locale(), { day: "numeric", month: "long", hour: "2-digit", minute: "2-digit" });
+}
+
+const esc = s => String(s ?? "").replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+
+function size(b) {
+  if (!b) return "0 MB";
+  return b >= 1073741824 ? (b / 1073741824).toLocaleString(locale(), { maximumFractionDigits: 1 }) + " GB"
+    : (b / 1048576).toLocaleString(locale(), { maximumFractionDigits: 0 }) + " MB";
+}
+
+function mb(b) { return (b / 1048576).toLocaleString(locale(), { maximumFractionDigits: b < 10485760 ? 1 : 0 }); }
+
+function bar(pct) {
+  const ind = pct === null || pct === undefined;
+  return `<div class="track${ind ? " indeterminate" : ""}"><div class="fill" style="width:${ind ? 30 : pct > 0 ? Math.max(2, pct) : 0}%"></div></div>`;
+}
+
+function jobText(job) {
+  if (job.status === "queued") return [L.queued, "", 0];
+  let detail = "";
+  if (job.bytes) detail = job.total ? `${mb(job.bytes)} ${L.of} ${mb(job.total)} MB` : `${mb(job.bytes)} MB`;
+  const known = job.pct !== null && job.pct !== undefined;
+  const phase = L.phases[job.phase] || L.inProgress;
+  return [phase + (detail ? " · " + detail : ""), known ? `${Math.round(job.pct)}%` : "", known ? job.pct : null];
+}
+
+function jobProgress(id, job) {
+  const [label, pct, val] = jobText(job);
+  return `<div class="progress" data-p="${esc(id)}">${bar(val)}<div class="phase"><span>${esc(label)}</span><span>${pct}</span></div></div>`;
+}
+
+// aggiorna le barre già presenti senza ricreare il DOM, così le animazioni restano fluide
+function patchProgress() {
+  document.querySelectorAll("[data-p]").forEach(el => {
+    const job = data.jobs[el.dataset.p];
+    if (!job) return;
+    const [label, pct, val] = jobText(job);
+    const track = el.querySelector(".track");
+    const ind = val === null;
+    track.classList.toggle("indeterminate", ind);
+    track.firstElementChild.style.width = (ind ? 30 : val > 0 ? Math.max(2, val) : 0) + "%";
+    const spans = el.querySelectorAll(".phase span");
+    spans[0].textContent = label;
+    spans[1].textContent = pct;
+    const status = el.parentElement.querySelector(".status");
+    if (status) status.innerHTML = job.status === "running" && ind ? '<span class="spin"></span>' : "";
+  });
+}
+
+let lastSig = "";
+
+function renderOverall() {
+  const b = data.batch;
+  if (!data.running || !b || !b.total || data.cleaning) { $("#overall").innerHTML = ""; return; }
+  const cur = Object.values(data.jobs).find(j => j.status === "running");
+  const pct = 100 * (b.done + (cur && cur.pct ? cur.pct / 100 : 0)) / b.total;
+  if (!$("#overall .overall")) $("#overall").innerHTML = `<div class="overall">${bar(0)}<div class="phase"><span></span><span></span></div></div>`;
+  $("#overall .fill").style.width = Math.max(2, pct) + "%";
+  const spans = $("#overall").querySelectorAll(".phase span");
+  spans[0].textContent = `${Math.min(b.done + 1, b.total)} ${L.of} ${b.total}`;
+  spans[1].textContent = `${Math.round(pct)}%`;
+}
+
+const excluded = () => data.excluded || {};
+const isEx = i => i.key in excluded();
+function pending() { return data.items.filter(i => !i.updated); }
+let exOpen = false;
+let unOpen = false;
+
+function iconHtml(path, kind, name) {
+  return path
+    ? `<img class="icon" src="/api/icon?path=${encodeURIComponent(path)}" alt="" onerror="this.className='icon blank';this.removeAttribute('src')">`
+    : `<div class="icon term">${esc((name || "?").trim().charAt(0).toUpperCase())}</div>`;
+}
+
+function rowHtml(i, busy, ex) {
+  const job = data.jobs[i.id];
+  const st = i.updated ? "done" : job?.status;
+  const status =
+    st === "done" ? L.done :
+    st === "running" ? (job.pct !== null && job.pct !== undefined ? "" : '<span class="spin"></span>') :
+    st === "queued" ? "" :
+    st === "error" ? L.failed : "";
+  const act = busy || st === "running" || st === "queued" ? "" :
+    `<span class="act" data-act="${ex ? "include" : "exclude"}">${ex ? L.include : L.exclude}</span>`;
+  return `<li class="${st === "done" ? "done" : ""}">
+    <div class="row" data-id="${esc(i.id)}" data-key="${esc(i.key)}">
+      <input type="checkbox" ${selected.has(i.id) ? "checked" : ""} ${busy || i.updated ? "disabled" : ""}>
+      ${iconHtml(i.path, i.kind, i.name)}
+      <div style="min-width:0">
+        <div class="name">${esc(i.name)}${i.major ? `<span class="tag">${L.major}</span>` : ""}${i.verified === false ? `<span class="tag">${L.unverified}</span>` : ""}</div>
+        <div class="meta">${esc(i.installed)}<span class="arrow">→</span>${esc(i.latest)} · ${esc(L.sources[i.source] || i.source)}</div>
+      </div>
+      <div class="status ${st || ""}">${status}${act}</div>
+      ${st === "running" || st === "queued" ? jobProgress(i.id, job) : ""}
+    </div>
+    ${openLogs.has(i.id) && job?.log ? `<pre class="log">${esc(job.log)}</pre>` : ""}
+  </li>`;
+}
+
+function renderSettings() {
+  const st = data.settings;
+  if (!st) return;
+  const set = (id, prop, val) => { const el = $(id); if (document.activeElement !== el) el[prop] = val; };
+  set("#s_daily", "checked", st.daily_check);
+  set("#s_check_time", "value", st.check_time);
+  set("#s_auto", "checked", st.auto_update);
+  set("#s_auto_time", "value", st.auto_time);
+  set("#s_login", "checked", st.login);
+  const on = st.daily_check || st.auto_update;
+  $("#autodot").className = "dot" + (on && st.login ? " on" : "");
+  $("#autolabel").textContent = !on ? L.autoOff : st.auto_update ? L.autoNightly(st.auto_time) : L.autoDaily(st.check_time);
+  const hint = $("#loginhint");
+  hint.textContent = on && !st.login ? L.loginWarn : "";
+  hint.className = "hint" + (on && !st.login ? " warn" : "");
+  const lc = st.last_cleanup;
+  $("#lastclean").textContent = data.cleaning ? L.cleanRunning : L.cleanInfo + (lc ? " " + L.cleanLast(ago(lc.at), size(lc.freed)) : "");
+  $("#s_clean").disabled = data.running || data.scanning || data.cleaning;
+  const la = st.last_auto;
+  $("#lastauto").textContent = la ? L.lastAuto(ago(la.at), la.updated.length)
+    + (la.failed.length ? L.lastAutoFailed(la.failed.length, la.failed.join(", ")) : "")
+    + (la.postponed.length ? L.lastAutoPostponed(la.postponed.join(", ")) : "") : "";
+}
+
+async function saveSettings(patch) {
+  try { data = await api("/api/settings", patch); } catch (e) { alert(e.message); }
+  render();
+}
+$("#s_daily").onchange = e => saveSettings({ daily_check: e.target.checked });
+$("#s_auto").onchange = e => saveSettings({ auto_update: e.target.checked });
+$("#s_login").onchange = e => saveSettings({ login: e.target.checked });
+$("#s_check_time").onchange = e => e.target.value && saveSettings({ check_time: e.target.value });
+$("#s_auto_time").onchange = e => e.target.value && saveSettings({ auto_time: e.target.value });
+$("#s_clean").onclick = async () => { try { data = await api("/api/cleanup", {}); } catch (e) { alert(e.message); } render(); };
+$("#s_test").onclick = async () => { await api("/api/notify-test", {}); };
+
+let selfLogOpen = false;
+function selfBanner() {
+  const s = data.self || {};
+  if (!s.available && !s.status) return "";
+  const v = esc(s.available || s.latest || "");
+  let right = "", sub = L.selfCurrent(esc(data.version), L.selfVia[s.method]);
+  if (s.status === "updating") { right = '<span class="spin"></span>'; sub = L.selfUpdating(v); }
+  else if (s.status === "restarting") { right = '<span class="spin"></span>'; sub = L.selfRestarting; }
+  else {
+    if (s.status === "error") sub = `<span style="color:var(--err)">${L.selfFailed}</span> <a href="#" id="selfLogToggle">${L.selfLog}</a>`;
+    right = `${s.url ? `<a href="${esc(s.url)}" target="_blank" rel="noopener">${L.news}</a>` : ""}<button type="button" id="selfInstall" class="primary">${L.selfInstall}</button>`;
+  }
+  return `<div class="notice self"><div style="min-width:0"><div class="name">${L.selfAvail(v)}</div><div class="meta reason">${sub}</div>
+    ${s.status === "error" && selfLogOpen && s.log ? `<pre class="log">${esc(s.log)}</pre>` : ""}</div><div class="links">${right}</div></div>`;
+}
+
+function render() {
+  const busy = data.scanning || data.running;
+  const items = data.items;
+  const main = items.filter(i => !isEx(i));
+  const todo = main.filter(i => !i.updated);
+  const allPending = pending();
+
+  if (firstLoad && !data.scanning) {
+    todo.forEach(i => { if (!i.major && i.verified !== false) selected.add(i.id); });
+    firstLoad = false;
+  }
+  for (const id of [...selected]) if (!allPending.find(i => i.id === id)) selected.delete(id);
+
+  $("#sub").innerHTML = data.scanning
+    ? `<span class="spin"></span>${L.scanning}`
+    : data.cleaning ? `<span class="spin"></span>${L.cleaning}`
+    : data.self && data.self.status === "updating" ? `<span class="spin"></span>${L.selfUpdating(esc(data.self.available || ""))}`
+    : data.self && data.self.status === "restarting" ? `<span class="spin"></span>${L.selfRestarting}`
+    : data.running ? L.updating
+    : data.scan_error ? L.error + esc(data.scan_error)
+    : todo.length === 0 ? `${L.allUpToDate} · ${ago(data.scanned_at)}`
+    : `${L.available(todo.length)} · ${ago(data.scanned_at)}`;
+
+  renderOverall();
+  $("#scan").disabled = busy;
+  const n = selected.size;
+  const nMain = todo.filter(i => selected.has(i.id)).length;
+  $("#go").disabled = busy || n === 0;
+  $("#go").textContent = n && n === todo.length && nMain === n ? L.updateAll : n ? L.updateN(n) : L.update;
+
+  if (data.version)
+    $("#version").innerHTML = `${data.demo ? esc(L.demo) + " · " : ""}${L.version} ${esc(data.version)} · <a href="https://github.com/${esc(data.repo)}/blob/main/CHANGELOG.md" target="_blank" rel="noopener">${L.news}</a>`;
+  renderSettings();
+  $("#pwdot").className = "dot" + (data.password ? " on" : "");
+  $("#pwlabel").textContent = data.password ? L.pwSet : L.pwUnset;
+  $("#elevate").style.display = data.password ? "none" : "";
+
+  const sig = JSON.stringify([lang, data.self && [data.self.available, data.self.status, selfLogOpen], busy, data.scanning, [...selected], [...openLogs], Object.keys(excluded()), (data.unchecked || []).length, (data.macos || []).join(), items.map(i => {
+    const j = data.jobs[i.id];
+    return [i.id, i.updated, j?.status, openLogs.has(i.id) ? j?.log : ""];
+  })]);
+  if (sig === lastSig) return patchProgress();
+  lastSig = sig;
+
+  let html = selfBanner();
+  if (data.macos && data.macos.length) {
+    html += `<div class="notice"><div><div class="name">${L.macos}</div><div class="meta">${data.macos.map(esc).join(" · ")}</div></div><button type="button" id="openSU">${L.openSettings}</button></div>`;
+  }
+  if (!main.length) {
+    html += data.scanning ? "" : `<div class="empty"><strong>${L.allUpToDate}</strong>${L.noneNeeded}</div>`;
+  } else {
+    html += `<div class="bar"><label><input type="checkbox" id="all" ${todo.length && nMain === todo.length ? "checked" : ""} ${busy || !todo.length ? "disabled" : ""}> ${L.selectAll}</label><span>${nMain} ${L.of} ${todo.length}</span></div>`;
+    const groups = [
+      [L.apps, main.filter(i => !i.system)],
+      [L.system, main.filter(i => i.system)],
+    ].filter(g => g[1].length);
+    for (const [title, list] of groups) {
+      html += `<h2>${title}</h2><ul>${list.map(i => rowHtml(i, busy, false)).join("")}</ul>`;
+    }
+  }
+
+  // sezione separata: app escluse dalla verifica
+  const ex = Object.entries(excluded()).sort((a, b) => a[1].name.localeCompare(b[1].name));
+  if (ex.length) {
+    const withUpdate = ex.filter(([k]) => items.some(i => i.key === k && !i.updated)).length;
+    html += `<details class="excluded" ${exOpen ? "open" : ""}>
+      <summary>${L.excluded} · ${ex.length}${withUpdate ? ` <span class="muted">${L.withUpdate(withUpdate)}</span>` : ""}</summary>
+      <p class="note">${L.excludedNote}</p><ul>`;
+    for (const [key, info] of ex) {
+      const it = items.find(i => i.key === key);
+      if (it) { html += rowHtml(it, busy, true); continue; }
+      html += `<li><div class="row static" data-key="${esc(key)}">
+        <span></span>${iconHtml(info.path, info.kind, info.name)}
+        <div style="min-width:0"><div class="name">${esc(info.name)}</div><div class="meta">${data.scanning ? L.scanning : L.noUpdate}</div></div>
+        <div class="status">${busy ? "" : `<span class="act" data-act="include">${L.include}</span>`}</div>
+      </div></li>`;
+    }
+    html += "</ul></details>";
+  }
+
+  // app che nessuna fonte sa controllare
+  const un = data.unchecked || [];
+  if (un.length && !data.scanning) {
+    html += `<details class="excluded unchecked" ${unOpen ? "open" : ""}>
+      <summary>${L.unchecked} · ${un.length}</summary>
+      <p class="note">${L.uncheckedNote}</p><ul>`;
+    for (const u of un) {
+      const q = encodeURIComponent(`${u.name} mac download`);
+      html += `<li><div class="row static">
+        <span></span>${iconHtml(u.path, null, u.name)}
+        <div style="min-width:0"><div class="name">${esc(u.name)}</div><div class="meta reason">${esc(u.version || L.unknownVersion)} · ${esc(L.reasons[u.reason] || u.reason)}</div></div>
+        <div class="status"><a class="act link" href="https://duckduckgo.com/?q=${q}" target="_blank" rel="noopener">${L.search}</a></div>
+      </div></li>`;
+    }
+    html += "</ul></details>";
+  }
+  $("#list").innerHTML = html;
+  const unDet = $("#list details.unchecked");
+  if (unDet) unDet.addEventListener("toggle", () => { unOpen = unDet.open; });
+  const det = $("#list details.excluded:not(.unchecked)");
+  if (det) det.addEventListener("toggle", () => { exOpen = det.open; });
+}
+
+$("#list").addEventListener("click", async e => {
+  if (e.target.id === "openSU") return api("/api/open-software-update", {});
+  if (e.target.id === "selfInstall") {
+    try { data = await api("/api/self-update", {}); } catch (err) { alert(err.message); }
+    return render();
+  }
+  if (e.target.id === "selfLogToggle") { e.preventDefault(); selfLogOpen = !selfLogOpen; return render(); }
+  if (e.target.id === "all") {
+    const main = pending().filter(i => !isEx(i));
+    if (e.target.checked) main.forEach(i => selected.add(i.id)); else main.forEach(i => selected.delete(i.id));
+    return render();
+  }
+  const actEl = e.target.closest("[data-act]");
+  if (actEl) {
+    e.stopPropagation();
+    const row = actEl.closest(".row");
+    const key = row.dataset.key;
+    const exclude = actEl.dataset.act === "exclude";
+    const it = data.items.find(i => i.key === key);
+    if (exclude && it) selected.delete(it.id);
+    data = await api("/api/exclude", { key, exclude, name: it?.name, path: it?.path, kind: it?.kind });
+    return render();
+  }
+  const row = e.target.closest(".row");
+  if (!row || row.classList.contains("static")) return;
+  const id = row.dataset.id;
+  const job = data.jobs[id];
+  if (job && (job.status === "error" || e.target.closest(".status"))) {
+    openLogs.has(id) ? openLogs.delete(id) : openLogs.add(id);
+    return render();
+  }
+  const cb = row.querySelector("input");
+  if (cb.disabled) return;
+  selected.has(id) ? selected.delete(id) : selected.add(id);
+  render();
+});
+
+$("#scan").onclick = async () => { firstLoad = true; data = await api("/api/scan", {}); render(); };
+$("#go").onclick = async () => {
+  try { data = await api("/api/update", { ids: [...selected] }); } catch (e) { alert(e.message); }
+  render();
+};
+
+$("#elevate").onclick = async () => {
+  $("#pwmsg").textContent = L.adminAsk;
+  try { data = await api("/api/elevate", {}); } catch (err) { $("#pwmsg").textContent = err.message; }
+};
+
+applyStatic();
+let langFromServer = false;
+let startVersion = null;
+async function poll() {
+  try {
+    data = await api("/api/state");
+    // dopo l'aggiornamento di sé stesso il server riparte con un'altra versione: si ricarica la pagina
+    if (startVersion && data.version !== startVersion) return location.reload();
+    startVersion = startVersion || data.version;
+    // la lingua del Mac (dal server) prevale su quella del browser
+    if (!langFromServer && data.lang) { setLang(data.lang); applyStatic(); langFromServer = true; }
+    render();
+  } catch {}
+  const selfBusy = data.self && (data.self.status === "updating" || data.self.status === "restarting");
+  setTimeout(poll, data.running || selfBusy ? 500 : data.scanning ? 1000 : 5000);
+}
+poll();
+</script>
+</body>
+</html>
