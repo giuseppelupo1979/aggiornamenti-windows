@@ -20,12 +20,14 @@ Solo se il tuo PC ha un processore ARM (per esempio Surface Pro X o i portatili 
 
 Apri **Aggiornamenti** dalla cartella Download (o dalla barra di download del browser).
 
-La prima volta Windows mostra quasi sicuramente una schermata blu **"Windows ha protetto il PC"**. È normale: compare con tutti i programmi nuovi che non sono firmati da un'azienda con un certificato a pagamento. Per proseguire:
+La prima volta Windows mostra quasi sicuramente una schermata blu **"PC protetto da Windows"**. È normale: compare con tutti i programmi nuovi che non sono firmati da un'azienda con un certificato a pagamento. Per proseguire:
 
 1. clicca **Ulteriori informazioni**;
 2. clicca **Esegui comunque**.
 
-![Avviso di Windows: clicca "Ulteriori informazioni" e poi "Esegui comunque"](docs/smartscreen.png)
+| Prima clicca qui… | …poi qui |
+|---|---|
+| ![Avviso PC protetto da Windows: clicca Ulteriori informazioni](docs/smartscreen-1.png) | ![Avviso con il pulsante Esegui comunque](docs/smartscreen-2.png) |
 
 ### 3. Fatto
 
@@ -57,7 +59,7 @@ Da quel momento gli aggiornamenti si installano in silenzio e Aggiornamenti part
 **È sicuro?**
 Il programma usa **winget**, lo strumento ufficiale di Microsoft già incluso in Windows 11, che scarica ogni aggiornamento dal sito del produttore e ne verifica l'integrità. Il codice di Aggiornamenti è pubblico in questa pagina e il file che scarichi viene costruito direttamente da GitHub a partire da questo codice.
 
-**Perché Windows dice che "ha protetto il PC"?**
+**Perché Windows mostra "PC protetto da Windows"?**
 Perché il programma è nuovo e non è firmato con un certificato a pagamento. Non significa che sia pericoloso: Windows avvisa per ogni programma che non conosce ancora. L'avviso diminuisce man mano che il programma viene scaricato da più persone.
 
 **L'antivirus lo segnala.**

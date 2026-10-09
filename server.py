@@ -25,7 +25,7 @@ import urllib.request
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import urlparse
 
-VERSION = "0.1.0"   # tenere allineata con CHANGELOG.md
+VERSION = "0.1.1"   # tenere allineata con CHANGELOG.md
 # --demo: dati finti, cartelle temporanee, nessuna modifica al sistema (per prove e screenshot)
 DEMO = "--demo" in sys.argv
 HOST = "127.0.0.1"
@@ -87,6 +87,8 @@ MESSAGES = {
               + ("Identifier truncated by winget, cannot update automatically: {x}",) * 2,
     "tech_diff": ("Questa app si aggiorna con un sistema diverso da quello con cui è stata installata: usa il suo aggiornamento interno, oppure disinstallala e reinstallala.",) * 2
                  + ("This app updates through a different installer than the one it was installed with: use its built-in updater, or uninstall and reinstall it.",) * 2,
+    "installer_failed": ("L'installer del programma non è andato a buon fine: se il programma era aperto (anche solo nell'area di notifica) chiudilo e riprova, oppure rispondi Sì alla richiesta di Windows.",) * 2
+                        + ("The program's installer failed: if the program was open (even just in the notification area) close it and try again, or answer Yes to Windows' prompt.",) * 2,
     "need_admin": ("Questo aggiornamento richiede i privilegi di amministratore: attivali in basso nella pagina.",) * 2
                   + ("This update needs administrator rights: turn them on at the bottom of the page.",) * 2,
 }
@@ -367,6 +369,10 @@ def resolve_id(raw, full):
 # si aggiornano da soli con il proprio sistema: winget li elenca ma non riesce ad aggiornarli
 SELF_UPDATING = {"Microsoft.Edge", "Microsoft.EdgeWebView2Runtime", "Microsoft.Edge.Beta", "Microsoft.Edge.Dev"}
 
+TECH_DIFF = re.compile(r"tecnologia di installazione|install technology", re.I)
+NOT_FOUND = re.compile(r"non (è|e|.) stato trovato alcun pacchetto installato|no installed package found", re.I)
+NOT_APPLICABLE = re.compile(r"non si applica al sistema|does not apply to your system|no applicable upgrade", re.I)
+
 SYSTEM_NAMES = re.compile(r"redistributable|runtime|driver|update for|windows sdk|\.net |webview2|"
                           r"microsoft edge update|visual c\+\+", re.I)
 
@@ -383,10 +389,25 @@ def scan_winget():
     installed = parse_table(out_list)
     full = winget_full_ids()
 
-    items = []
+    # stessa app elencata sia dal Microsoft Store sia da winget: si tiene la copia winget
+    by_name = {}
+    for r in upgrades:
+        key = TRUNC.sub("", r["name"]).strip().lower()
+        if key not in by_name or (by_name[key].get("source") == "msstore" and r.get("source") != "msstore"):
+            by_name[key] = r
+    upgrades = list(by_name.values())
+
+    blocked = load_settings().get("unupgradable") or {}
+    items, skipped = [], []
     for r in upgrades:
         pid = resolve_id(r["id"], full)
         if pid in SELF_UPDATING:
+            continue
+        b = blocked.get(pid or "")
+        if b and b.get("version") == r["version"]:
+            # già fallito per un motivo che winget non può superare: si mostra tra le non controllate
+            skipped.append({"name": TRUNC.sub("", r["name"]).strip(), "version": r["version"],
+                            "reason": b["reason"], "path": None})
             continue
         unknown = r["version"].startswith("<") or r["version"].lower() in ("unknown", "sconosciuto")
         source = r.get("source") or "winget"
@@ -412,6 +433,7 @@ def scan_winget():
             continue
         seen.add(name)
         unchecked.append({"name": name, "version": r["version"], "reason": "no_source", "path": None})
+    unchecked += skipped
     unchecked.sort(key=lambda u: u["name"].lower())
     return items, unchecked
 
@@ -548,7 +570,24 @@ def update_one(item):
         try:
             rc, _ = run_stream(cmd, lambda l: (log(l), on_line(l)))
             ok = rc == 0
-            if not ok and re.search(r"tecnologia di installazione|install technology", "\n".join(lines), re.I):
+            text = "\n".join(lines)
+            if not ok and NOT_FOUND.search(text) and "--source" not in cmd:
+                # winget a volte elenca un aggiornamento e poi non trova l'app: si riprova sulla sola sorgente winget
+                lines.clear()
+                rc, _ = run_stream(cmd + ["--source", "winget"], lambda l: (log(l), on_line(l)))
+                ok = rc == 0
+                text = "\n".join(lines)
+            reason = None if ok else ("tech_diff" if TECH_DIFF.search(text) else
+                                      "not_found" if NOT_FOUND.search(text) else
+                                      "not_applicable" if NOT_APPLICABLE.search(text) else None)
+            if reason:
+                # non si ripropone finché la versione installata resta questa
+                s = load_settings()
+                s.setdefault("unupgradable", {})[item["token"]] = {"reason": reason, "version": item["installed"]}
+                save_settings(s)
+            elif not ok and re.search(r"codice di uscita|exit code", text, re.I):
+                log(t("installer_failed"))
+            if reason == "tech_diff":
                 log(t("tech_diff"))
             if not ok and not is_admin() and re.search(r"amministrator|administrator|0x80070005|elevat", "\n".join(lines), re.I):
                 log(t("need_admin"))

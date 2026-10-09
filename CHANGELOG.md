@@ -2,6 +2,16 @@
 
 Tutte le modifiche rilevanti al progetto. Le versioni seguono il [versionamento semantico](https://semver.org/lang/it/).
 
+## [0.1.1] - 2026-10-09
+
+### Corretto
+- Reinstallando o aggiornando mentre il programma era aperto (anche in modalità demo) l'installazione falliva con "file utilizzato da un altro processo": ora tutte le copie in esecuzione vengono chiuse prima di sostituire l'exe.
+- In caso di errore all'avvio compare un messaggio comprensibile invece della finestra tecnica di Python.
+- Le app che winget non può aggiornare (installate con un sistema diverso, non trovate o non compatibili) dopo il primo tentativo passano in "Non controllate" con la spiegazione, e tornano tra gli aggiornamenti se la versione installata cambia.
+- winget a volte elenca un aggiornamento e poi non trova l'app: si riprova una volta sulla sola sorgente winget.
+- La stessa app elencata sia dal Microsoft Store sia da winget compare una volta sola.
+- Quando un installer fallisce compare il suggerimento di chiudere il programma o accettare la richiesta di Windows.
+
 ## [0.1.0] - 2026-10-09
 
 Prima versione, derivata da [Aggiornamenti per Mac](https://github.com/giuseppelupo1979/aggiornamenti-mac) 1.8.2.

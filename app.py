@@ -78,11 +78,29 @@ def shortcut_paths():
     return start, os.path.join(desktop.strip(), "Aggiornamenti.lnk")
 
 
+def stop_installed_copies():
+    """Chiude ogni copia in esecuzione dell'exe installato (finestra, server, modalità demo):
+    Windows non permette di sovrascrivere un programma aperto."""
+    for port in (server.PORT, 8766):
+        if up(port):
+            quit_running(port)
+    target = INSTALLED_EXE.replace("'", "''")
+    ps(f"Get-Process | Where-Object {{ $_.Path -eq '{target}' -and $_.Id -ne {os.getpid()} }} | Stop-Process -Force")
+
+
 def install():
     """Copia l'exe nella cartella utente e lo registra come programma installato."""
     import winreg
     os.makedirs(INSTALL_DIR, exist_ok=True)
-    shutil.copy2(sys.executable, INSTALLED_EXE)
+    stop_installed_copies()
+    for attempt in range(20):   # il file si libera qualche istante dopo la chiusura dei processi
+        try:
+            shutil.copy2(sys.executable, INSTALLED_EXE)
+            break
+        except PermissionError:
+            if attempt == 19:
+                raise
+            time.sleep(0.5)
     icon = os.path.join(INSTALL_DIR, "icon.png")
     shutil.copy2(os.path.join(server.RES, "assets", "icon.png"), icon)
     for lnk in shortcut_paths():
@@ -138,9 +156,6 @@ def main():
 
     # avviato fuori dalla cartella di installazione (es. da Download): si installa o aggiorna e si riapre da lì
     if frozen and not demo and os.path.normcase(sys.executable) != os.path.normcase(INSTALLED_EXE):
-        if up(server.PORT):
-            quit_running(server.PORT)
-            time.sleep(1.5)
         install()
         subprocess.Popen([INSTALLED_EXE], creationflags=DETACHED, close_fds=True)
         return
@@ -162,5 +177,21 @@ def main():
     open_window(f"http://127.0.0.1:{port}/")
 
 
+def message(text):
+    import ctypes
+    ctypes.windll.user32.MessageBoxW(None, text, "Aggiornamenti", 0x10)
+
+
 if __name__ == "__main__":
-    main()
+    try:
+        main()
+    except Exception as e:
+        # mai la finestra tecnica di Python: un messaggio comprensibile e il dettaglio nel registro
+        import traceback
+        server.log_line("avvio", traceback.format_exc())
+        if server.LANG == "it":
+            message(f"Aggiornamenti non è riuscito ad avviarsi.\n\n{e}\n\nChiudi eventuali finestre di Aggiornamenti "
+                    f"e riprova. Il dettaglio è nel registro:\n{server.LOG_FILE}")
+        else:
+            message(f"Aggiornamenti could not start.\n\n{e}\n\nClose any Aggiornamenti window and try again. "
+                    f"Details are in the log:\n{server.LOG_FILE}")
