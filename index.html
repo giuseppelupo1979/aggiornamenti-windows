@@ -5,40 +5,45 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Aggiornamenti</title>
 <style>
-  /* tema sempre scuro */
   :root {
-    color-scheme: dark;
-    --bg: #161617;
-    --fg: #f5f5f7;
-    --muted: #8e8e93;
-    --line: #2a2a2c;
-    --accent: #f5f5f7;
-    --accent-fg: #161617;
-    --ok: #5fbf85;
-    --err: #ff6b5e;
-    --hover: #1e1e20;
+    color-scheme: light dark;
+    --bg: light-dark(#f3f5f9, #12151c);
+    --panel: light-dark(#ffffff, #1b2029);
+    --fg: light-dark(#192334, #eef2fa);
+    --muted: light-dark(#59677a, #a9b6cb);
+    --line: light-dark(#dce3ed, #303949);
+    --accent: light-dark(#175ddc, #82b1ff);
+    --action: #2465df;
+    --accent-fg: #ffffff;
+    --ok: light-dark(#197242, #89d5ab);
+    --err: light-dark(#b22b32, #ff9197);
+    --amber: light-dark(#845600, #f1c67b);
+    --amber-bg: light-dark(#fff1d9, #3c3020);
+    --hover: light-dark(#edf4ff, #202e44);
   }
+  :root[data-theme=light] { color-scheme: light; }
+  :root[data-theme=dark] { color-scheme: dark; }
   * { box-sizing: border-box; }
   html, body { margin: 0; background: var(--bg); color: var(--fg); }
   body {
     font: 15px/1.45 "Segoe UI Variable Text", "Segoe UI", system-ui, -apple-system, sans-serif;
     -webkit-font-smoothing: antialiased;
   }
-  main { max-width: 720px; margin: 0 auto; padding: 72px 16px 96px; }
+  main { max-width: 880px; margin: 0 auto; padding: 0 24px 48px; }
 
-  header { display: flex; align-items: flex-end; justify-content: space-between; gap: 24px; margin-bottom: 40px; }
-  h1 { font-size: 34px; font-weight: 600; letter-spacing: -0.02em; margin: 0 0 6px; }
+  header { position: sticky; top: 0; z-index: 5; background: var(--bg); display: flex; align-items: center; justify-content: space-between; gap: 20px; padding: 28px 0 24px; margin-bottom: 12px; border-bottom: 1px solid var(--line); }
+  h1 { font-size: 30px; font-weight: 650; letter-spacing: -0.02em; margin: 0 0 6px; }
   .sub { color: var(--muted); font-size: 14px; margin: 0; }
   .actions { display: flex; gap: 10px; flex-shrink: 0; }
 
   button {
-    font: inherit; font-size: 14px; border-radius: 999px; padding: 8px 18px; cursor: pointer;
-    border: 1px solid var(--line); background: transparent; color: var(--fg);
-    transition: opacity .15s, background .15s;
+    font: inherit; font-size: 14px; border-radius: 8px; padding: 10px 16px; cursor: pointer;
+    border: 1px solid var(--line); background: var(--panel); color: var(--fg);
+    transition: opacity .15s;
   }
   button:hover:not(:disabled) { background: var(--hover); }
-  button.primary { background: var(--accent); color: var(--accent-fg); border-color: var(--accent); }
-  button.primary:hover:not(:disabled) { background: var(--accent); opacity: .85; }
+  button.primary { background: var(--action); color: var(--accent-fg); border-color: var(--action); font-weight: 600; }
+  button.primary:hover:not(:disabled) { background: var(--action); opacity: .85; }
   button:disabled { opacity: .35; cursor: default; }
 
   .bar { display: flex; align-items: center; justify-content: space-between; padding: 0 4px 12px; border-bottom: 1px solid var(--line); color: var(--muted); font-size: 13px; }
@@ -64,23 +69,25 @@
 
   input[type=checkbox] {
     appearance: none; width: 18px; height: 18px; margin: 0; border: 1.5px solid var(--muted);
-    border-radius: 50%; cursor: pointer; display: grid; place-items: center; transition: all .15s;
+    border-radius: 5px; cursor: pointer; display: grid; place-items: center; transition: all .15s;
   }
-  input[type=checkbox]:checked { background: var(--accent); border-color: var(--accent); }
+  input[type=checkbox]:checked { background: var(--action); border-color: var(--action); }
   input[type=checkbox]:checked::after {
     content: ""; width: 5px; height: 9px; border: solid var(--accent-fg); border-width: 0 1.5px 1.5px 0;
     transform: translateY(-1px) rotate(45deg);
   }
+  input[type=checkbox]:indeterminate { background: var(--action); border-color: var(--action); }
+  input[type=checkbox]:indeterminate::after { content: ""; width: 9px; height: 2px; background: white; }
   input[type=checkbox]:disabled { opacity: .3; cursor: default; }
 
   .progress { grid-column: 3 / 5; margin-top: -4px; }
   .track { height: 3px; border-radius: 3px; background: var(--line); overflow: hidden; position: relative; }
-  .fill { height: 100%; background: var(--fg); border-radius: 3px; transition: width .4s ease; }
+  .fill { height: 100%; background: var(--action); border-radius: 3px; transition: width .4s ease; }
   .track.indeterminate .fill { width: 30% !important; position: absolute; animation: slide 1.4s ease-in-out infinite; }
   @keyframes slide { from { left: -30%; } to { left: 100%; } }
   .phase { font-size: 12px; color: var(--muted); margin-top: 6px; display: flex; justify-content: space-between; gap: 12px; }
   .phase span:last-child { font-variant-numeric: tabular-nums; }
-  .overall { margin: -12px 0 36px; }
+  .overall { margin: 12px 0 24px; }
   .overall .phase { margin-top: 8px; }
 
   .act { font-size: 12px; color: var(--muted); margin-left: 12px; opacity: 0; transition: opacity .15s; cursor: pointer; }
@@ -121,13 +128,13 @@
   .notice .meta { white-space: normal; }
   .act.link { opacity: 1; text-decoration: none; }
   .reason { white-space: normal; }
-  .act { opacity: .55; background: none; border: 0; padding: 2px 4px; font: inherit; font-size: 12px; color: var(--muted); }
+  .act { opacity: 1; background: none; border: 0; padding: 2px 4px; font: inherit; font-size: 12px; color: var(--muted); }
   .row:hover .act, .act:focus-visible { opacity: 1; }
   .act:focus-visible, button:focus-visible, input:focus-visible { outline: 2px solid var(--fg); outline-offset: 2px; }
   .mini { font-size: 12px; padding: 4px 10px; margin-left: 6px; }
   .status .details { color: inherit; text-decoration: underline; text-underline-offset: 3px; cursor: pointer; margin-left: 6px; }
   .status.blocked, .status.postponed { color: var(--muted); }
-  .warn-line { color: var(--err); font-size: 13px; margin: -28px 0 24px; }
+  .warn-line { color: var(--err); font-size: 13px; margin: 12px 0 24px; }
   .gone { position: fixed; inset: 0; background: rgba(0,0,0,.72); display: grid; place-items: center; z-index: 20; padding: 16px; }
   .gone .card { background: var(--bg); border: 1px solid var(--line); border-radius: 18px; padding: 32px; max-width: 460px; text-align: center; }
   .gone h2 { font-size: 22px; color: var(--fg); text-transform: none; letter-spacing: 0; margin: 0 0 10px; }
@@ -170,12 +177,64 @@
   .dot { display: inline-block; width: 6px; height: 6px; border-radius: 50%; margin-right: 8px; vertical-align: 1px; background: var(--muted); }
   .dot.on { background: var(--ok); }
 
+  .apps-panel, details.excluded, footer > details {
+    background: var(--panel); border: 1px solid var(--line); border-radius: 12px; overflow: clip;
+  }
+  .apps-panel .bar { padding: 16px 20px; }
+  .apps-panel h2 { padding: 14px 20px 8px; margin: 0; }
+  ul { padding: 0; margin: 0; }
+  .row { padding: 16px 20px; grid-template-columns: 20px 40px minmax(0, 1fr) auto; }
+  li:last-child { border-bottom: 0; }
+  li.selected { background: var(--hover); }
+  .row:focus-within { box-shadow: inset 3px 0 var(--accent); }
+  .icon { width: 40px; height: 40px; background: var(--panel); }
+  .name { white-space: normal; overflow-wrap: anywhere; font-weight: 600; }
+  .meta { margin-top: 3px; white-space: normal; overflow-wrap: anywhere; font-variant-numeric: tabular-nums; }
+  .new-version { color: var(--fg); font-weight: 500; }
+  .source { display: block; margin-top: 2px; font-size: 12px; }
+  .tag { color: var(--amber); background: var(--amber-bg); border: 0; border-radius: 5px; display: inline-block; }
+  .row-actions { display: flex; flex-wrap: wrap; gap: 5px; align-items: center; justify-content: flex-end; margin-top: 5px; }
+  .row-actions .act { margin: 0; opacity: 1; }
+  select { font: inherit; font-size: 13px; color: var(--fg); background: var(--panel); border: 1px solid var(--line); padding: 8px; border-radius: 7px; max-width: 100%; }
+  .snooze-select { font-size: 12px; max-width: 180px; padding: 5px; }
+  .status { max-width: 230px; }
+  .status.restart, .status.restart_before, .status.unverified, .review-notice { color: var(--amber); }
+  .history-result.done { color: var(--ok); }
+  .history-result.error { color: var(--err); }
+  .history-result.restart, .history-result.restart_before, .history-result.unverified { color: var(--amber); }
+  .review-notice { padding: 14px 16px; border-radius: 10px; background: var(--amber-bg); font-size: 14px; }
+  details.excluded { margin-top: 16px; }
+  details.excluded > summary { padding: 16px 20px; border: 0; text-transform: none; font-size: 14px; letter-spacing: 0; }
+  details.excluded[open] > summary { border-bottom: 1px solid var(--line); }
+  details.excluded .note { margin: 12px 20px; }
+  .history-tools { display: flex; flex-wrap: wrap; gap: 8px; padding: 16px 20px 0; }
+  .history-tools select { flex: 1; min-width: 130px; }
+  .history li { display: block; padding: 0 20px; }
+  .history li > details { width: 100%; }
+  .history li summary { display: flex; justify-content: space-between; gap: 12px; padding: 12px 0; font-size: 13px; color: var(--fg); text-transform: none; letter-spacing: 0; }
+  .history li summary::before { display: none; }
+  .history li p { margin: 8px 0; }
+  .history pre.log { margin: 8px 0 16px; }
+  footer { margin-top: 28px; }
+  footer > details { padding: 16px 20px; }
+  .appearance { display: flex; align-items: center; gap: 12px; margin-top: 20px; }
+  .act:focus-visible, button:focus-visible, input:focus-visible, select:focus-visible, summary:focus-visible, a:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
+  @media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation: none !important; transition: none !important; } }
+  @media (pointer: coarse) { button, select, summary, .act { min-height: 44px; } }
   @media (max-width: 600px) {
     .progress { grid-column: 1 / 4; }
-    main { padding-top: 40px; }
-    header { flex-direction: column; align-items: flex-start; }
+    main { padding: 0 12px 32px; }
+    header { flex-direction: column; align-items: stretch; gap: 14px; padding: 18px 0; }
+    h1 { font-size: 26px; }
+    .actions button { flex: 1; }
     .row { grid-template-columns: 20px 32px 1fr; }
-    .status { grid-column: 3; text-align: left; min-width: 0; }
+    .row { padding: 14px 12px; gap: 10px; }
+    .icon { width: 32px; height: 32px; }
+    .status { grid-column: 3; text-align: left; min-width: 0; max-width: none; }
+    .row-actions { justify-content: flex-start; }
+    .history li summary { flex-direction: column; gap: 4px; }
+    .notice { flex-wrap: wrap; }
+    .opt { flex-wrap: wrap; }
     pre.log { margin-left: 4px; }
   }
 </style>
@@ -185,7 +244,7 @@
   <header>
     <div>
       <h1 data-t="title"></h1>
-      <p class="sub" id="sub"></p>
+      <p class="sub" id="sub" role="status"></p>
     </div>
     <div class="actions">
       <button id="scan" data-t="check"></button>
@@ -193,7 +252,7 @@
     </div>
   </header>
 
-  <div id="overall"></div>
+  <div id="overall" aria-live="polite"></div>
   <div id="welcome"></div>
   <div id="gone"></div>
   <div id="list"></div>
@@ -202,9 +261,13 @@
     <details id="settings">
       <summary><span class="dot" id="autodot"></span><span id="autolabel"></span></summary>
       <div class="settings">
-        <label class="opt"><input type="checkbox" id="s_daily"> <span><span data-t="dailyA"></span> <input type="time" id="s_check_time"> <span data-t="dailyB"></span></span></label>
-        <label class="opt"><input type="checkbox" id="s_auto"> <span><span data-t="nightly"></span> <input type="time" id="s_auto_time"></span></label>
+        <label class="opt"><input type="checkbox" id="s_daily"> <span><span data-t="dailyA"></span> <input type="time" id="s_check_time" aria-label="Check time"> <span data-t="dailyB"></span></span></label>
+        <label class="opt"><input type="checkbox" id="s_auto"> <span><span data-t="nightly"></span> <input type="time" id="s_auto_time" aria-label="Update time"></span></label>
         <p class="hint" data-t="nightlyHint"></p>
+        <label class="opt"><input type="checkbox" id="s_ac"><span data-t="onlyAC"></span></label>
+        <label class="opt"><input type="checkbox" id="s_metered"><span data-t="avoidMetered"></span></label>
+        <p class="hint" data-t="conditionsHint"></p>
+        <p class="hint" id="nextauto" role="status"></p>
         <label class="opt"><input type="checkbox" id="s_login"> <span data-t="login"></span></label>
         <p class="hint" id="loginhint"></p>
         <p class="hint" id="lastauto"></p>
@@ -220,6 +283,7 @@
       <p data-t="pwHelp"></p>
       <p id="pwmsg"></p>
     </details>
+    <div class="appearance"><label for="s_theme" data-t="appearance"></label><select id="s_theme"><option value="system" data-t="themeSystem"></option><option value="light" data-t="themeLight"></option><option value="dark" data-t="themeDark"></option></select></div>
     <p class="version" id="version"></p>
   </footer>
 </main>
@@ -235,7 +299,7 @@ let firstLoad = true;
 
 const I18N = {
   it: {
-    title: "Aggiornamenti", check: "Controlla", update: "Aggiorna", updateAll: "Aggiorna tutto", updateN: n => `Aggiorna (${n})`,
+    title: "Aggiornamenti", check: "Controlla", update: "Aggiorna", updateAll: "Aggiorna tutto", updateN: n => `Aggiorna ${n} app`,
     scanning: "Controllo in corso…", cleaning: "Pulizia della cache…", updating: "Aggiornamento in corso…", error: "Errore: ",
     allUpToDate: "Nessun aggiornamento", noneNeeded: "Nessun aggiornamento disponibile per i programmi controllati. Quelli che il programma non sa controllare sono in fondo, in Non controllate.",
     interrupt: "Interrompi", stopping: "Mi fermo dopo l'installazione in corso…",
@@ -258,7 +322,7 @@ const I18N = {
               install: "Installazione", replace: "Sostituzione della versione precedente", finish: "Rifinitura",
               closing: "Chiusura dell'app", reopening: "Riapertura dell'app" },
     sources: { winget: "winget", msstore: "Microsoft Store" },
-    reasons: { no_catalog_version: "Il catalogo Homebrew non indica il numero di versione", no_app_version: "L'app non dichiara la sua versione",
+    reasons: { no_catalog_version: "Il catalogo non indica il numero di versione", no_app_version: "L'app non dichiara la sua versione",
                insecure_feed: "Canale di aggiornamento non sicuro (http)", no_source: "Nessuna fonte di aggiornamento conosciuta",
                feed_down: "Il sito dello sviluppatore non ha risposto", feed_empty: "Il canale di aggiornamento non contiene versioni leggibili",
                tech_diff: "Installato con un sistema diverso da quello di winget: aggiornalo dal programma stesso",
@@ -272,8 +336,8 @@ const I18N = {
     uncheckedNote: "Per queste app non esiste una fonte di aggiornamento che il programma sappia leggere: non è detto che siano aggiornate. Controllale ogni tanto dal menu dell'app o dal sito dello sviluppatore.",
     unknownVersion: "versione sconosciuta", search: "Cerca",
     dailyA: "Controlla ogni giorno alle", dailyB: "e avvisami con una notifica", nightly: "Aggiorna da solo ogni notte alle",
-    nightlyHint: "Di notte vengono aggiornate solo le app non escluse, senza versioni maggiori né abbinamenti da verificare. Le app aperte non vengono mai chiuse: si rimandano al giro successivo. Se il Mac dorme all'ora prevista, il controllo parte appena si risveglia.",
-    login: "Avvia Aggiornamenti all'accesso (con i privilegi di amministratore)", testNotif: "Prova una notifica", cleanNow: "Libera spazio ora",
+    nightlyHint: "Di notte vengono aggiornate solo le app non escluse, senza versioni maggiori né abbinamenti da verificare. Le app aperte non vengono mai chiuse: si rimandano al giro successivo. Se il PC è spento o sospeso, riprova al risveglio solo entro le cinque ore successive all’orario scelto; altrimenti aspetta la notte dopo.",
+    login: "Avvia Aggiornamenti all'accesso", testNotif: "Prova una notifica", cleanNow: "Libera spazio ora",
     autoOff: "Controllo automatico disattivato", autoNightly: t => `Aggiornamento automatico ogni notte alle ${t}`, autoDaily: t => `Controllo automatico ogni giorno alle ${t}`,
     loginWarn: "Il controllo automatico funziona solo mentre Aggiornamenti è attivo: attiva l'avvio all'accesso perché resti attivo anche dopo un riavvio.",
     cleanInfo: "Dopo ogni giro di aggiornamenti installer e vecchie versioni vengono cancellati.",
@@ -287,7 +351,7 @@ const I18N = {
     selfAvail: v => `È disponibile Aggiornamenti ${v}`, selfCurrent: (v, via) => via ? `Hai la versione ${v}, installata ${via}.` : `Hai la versione ${v}.`,
     selfInstall: "Installa", selfUpdating: v => `Installazione di Aggiornamenti ${v}…`,
     selfRestarting: "Riavvio in corso, la pagina si ricarica da sola…", selfFailed: "Installazione non riuscita.",
-    selfLog: "Dettagli", selfVia: { brew: "tramite Homebrew", git: "tramite git", archive: "dall'archivio su GitHub", exe: "" },
+    selfLog: "Dettagli", selfVia: { git: "tramite git", archive: "dall'archivio su GitHub", exe: "" },
     wTitle: "Benvenuto in Aggiornamenti", wIntro: "Tre scelte e sei pronto. Puoi cambiarle quando vuoi in fondo alla finestra.",
     wAdmin: "Aggiornamenti senza domande", wAdminSub: "Windows chiederà conferma una volta sola; poi gli aggiornamenti si installano in silenzio e il programma parte all'accensione.",
     wDaily: "Controllo ogni mattina alle 9", wDailySub: "Una notifica ti avvisa se c'è qualcosa da aggiornare.",
@@ -296,7 +360,7 @@ const I18N = {
     offline: "Aggiornamenti non è in esecuzione: riaprilo dal menu Start o dal collegamento sul Desktop.",
   },
   en: {
-    title: "Aggiornamenti", check: "Check", update: "Update", updateAll: "Update all", updateN: n => `Update (${n})`,
+    title: "Aggiornamenti", check: "Check", update: "Update", updateAll: "Update all", updateN: n => `Update ${n} apps`,
     scanning: "Checking…", cleaning: "Cleaning the cache…", updating: "Updating…", error: "Error: ",
     allUpToDate: "No updates", noneNeeded: "No updates available for the checked programs. Programs it can't check are listed at the bottom, under Not checked.",
     interrupt: "Stop", stopping: "Stopping after the current installation…",
@@ -319,7 +383,7 @@ const I18N = {
               install: "Installing", replace: "Replacing the previous version", finish: "Finishing",
               closing: "Quitting the app", reopening: "Reopening the app" },
     sources: { winget: "winget", msstore: "Microsoft Store" },
-    reasons: { no_catalog_version: "The Homebrew catalog has no version number", no_app_version: "The app does not declare its version",
+    reasons: { no_catalog_version: "The catalog has no version number", no_app_version: "The app does not declare its version",
                insecure_feed: "Insecure update feed (http)", no_source: "No known update source",
                feed_down: "The developer's website did not respond", feed_empty: "The update feed has no readable versions",
                tech_diff: "Installed with a different installer than winget's: update it from the program itself",
@@ -333,7 +397,7 @@ const I18N = {
     uncheckedNote: "There is no update source the program can read for these apps, so they may be out of date. Check them now and then from the app's menu or the developer's website.",
     unknownVersion: "unknown version", search: "Search",
     dailyA: "Check every day at", dailyB: "and notify me", nightly: "Update automatically every night at",
-    nightlyHint: "At night only apps that are not excluded are updated, skipping major versions and unverified matches. Open apps are never quit: they wait for the next run. If the Mac is asleep at that time, the check runs as soon as it wakes up.",
+    nightlyHint: "At night only apps that are not excluded are updated, skipping major versions and unverified matches. Open apps are never quit: they wait for the next run. If the PC is off or asleep, updates resume only within five hours of the scheduled time; otherwise they wait until the next night.",
     login: "Start Aggiornamenti at login (with administrator rights)", testNotif: "Send a test notification", cleanNow: "Free up space now",
     autoOff: "Automatic check off", autoNightly: t => `Automatic update every night at ${t}`, autoDaily: t => `Automatic check every day at ${t}`,
     loginWarn: "Automatic checks only run while Aggiornamenti is running: turn on start at login so it keeps running after a restart.",
@@ -348,7 +412,7 @@ const I18N = {
     selfAvail: v => `Aggiornamenti ${v} is available`, selfCurrent: (v, via) => via ? `You have version ${v}, installed ${via}.` : `You have version ${v}.`,
     selfInstall: "Install", selfUpdating: v => `Installing Aggiornamenti ${v}…`,
     selfRestarting: "Restarting, the page will reload by itself…", selfFailed: "Installation failed.",
-    selfLog: "Details", selfVia: { brew: "via Homebrew", git: "via git", archive: "from the GitHub archive", exe: "" },
+    selfLog: "Details", selfVia: { git: "via git", archive: "from the GitHub archive", exe: "" },
     wTitle: "Welcome to Aggiornamenti", wIntro: "Three choices and you're set. You can change them any time at the bottom of the window.",
     wAdmin: "Updates without prompts", wAdminSub: "Windows asks once; then updates install silently and the program starts with your PC.",
     wDaily: "Check every morning at 9", wDailySub: "A notification tells you when something needs updating.",
@@ -357,6 +421,32 @@ const I18N = {
     offline: "Aggiornamenti isn't running: reopen it from the Start menu or the Desktop shortcut.",
   },
 };
+Object.assign(I18N.it, {
+  onlyAC: "Aggiorna automaticamente solo quando collegato alla corrente", avoidMetered: "Evita aggiornamenti automatici sulle connessioni a consumo",
+  conditionsHint: "Queste condizioni valgono per gli aggiornamenti automatici. Se non sono verificabili, l’installazione viene rimandata.",
+  nextAuto: "Prossimo tentativo", waitReasons: {battery:"In attesa della corrente", power_unknown:"Alimentazione non verificabile", metered:"Connessione a consumo", offline:"Nessuna connessione", unknown:"Costo della connessione non verificabile", scan_failed:"Controllo non riuscito"},
+  appearance:"Aspetto", themeSystem:"Come Windows", themeLight:"Chiaro", themeDark:"Scuro",
+  snooze:"Rimanda…", day:"Per 24 ore", week:"Per una settimana", skipVersion:"Salta questa versione", resume:"Riprendi", snoozed:"Rimandate", until:"Fino al", skipped:"Versione saltata",
+  restart:"Riavvio necessario", restart_before:"Riavvia prima di riprovare", unverifiedResult:"Da verificare", deferred:"In attesa delle condizioni",
+  allApps:"Tutte le app", allResults:"Tutti gli esiti", exportReport:"Esporta diagnostica", reportHint:"Il rapporto include le app nello storico. Percorsi utente, email, URL e credenziali riconoscibili vengono oscurati: controllalo prima di condividerlo.",
+  noHistory:"Nessun aggiornamento corrisponde ai filtri.", detected:"Versione rilevata", target:"Versione richiesta", exitCode:"Codice di uscita", schedule:"Modalità", pendingReview:"Alcuni aggiornamenti richiedono una verifica o un riavvio.",
+  noEligible:"Nessun aggiornamento da selezionare. Controlla anche le app rimandate ed escluse."
+});
+Object.assign(I18N.en, {
+  onlyAC:"Automatically update only on AC power", avoidMetered:"Avoid automatic updates on metered connections",
+  conditionsHint:"These conditions apply to automatic updates. If they cannot be checked, installation is postponed.",
+  nextAuto:"Next attempt", waitReasons:{battery:"Waiting for AC power",power_unknown:"Power status unavailable",metered:"Metered connection",offline:"No connection",unknown:"Connection cost unavailable",scan_failed:"Check failed"},
+  appearance:"Appearance",themeSystem:"Match Windows",themeLight:"Light",themeDark:"Dark",
+  snooze:"Postpone…",day:"For 24 hours",week:"For a week",skipVersion:"Skip this version",resume:"Resume",snoozed:"Postponed",until:"Until",skipped:"Skipped version",
+  restart:"Restart required",restart_before:"Restart before retrying",unverifiedResult:"Needs verification",deferred:"Waiting for conditions",
+  allApps:"All apps",allResults:"All results",exportReport:"Export diagnostics",reportHint:"The report includes apps in your history. Recognizable user paths, emails, URLs and credentials are redacted: review it before sharing.",
+  noHistory:"No updates match these filters.",detected:"Detected version",target:"Requested version",exitCode:"Exit code",schedule:"Mode",pendingReview:"Some updates need verification or a restart.",
+  noEligible:"No updates to select. Check postponed and excluded apps too."
+});
+for (const l of Object.values(I18N)) {
+  Object.assign(l.res,{restart:l.restart,restart_before:l.restart_before,unverified:l.unverifiedResult,deferred:l.deferred});
+  l.phases.verify_install = l === I18N.it ? "Verifica versione installata" : "Checking installed version";
+}
 const forced = new URLSearchParams(location.search).get("lang");
 let lang = forced || (navigator.language || "en").slice(0, 2);
 let L = I18N[lang] || I18N.en;
@@ -368,6 +458,8 @@ function applyStatic() {
   document.documentElement.lang = lang;
   document.querySelectorAll("[data-t]").forEach(el => { el.textContent = L[el.dataset.t]; });
   document.title = L.title;
+  $("#s_check_time").setAttribute("aria-label", L.dailyA);
+  $("#s_auto_time").setAttribute("aria-label", L.nightly);
 }
 const locale = () => lang === "it" ? "it-IT" : "en-US";
 
@@ -454,6 +546,8 @@ const isEx = i => i.key in excluded();
 function pending() { return data.items.filter(i => !i.updated && !i.moved); }
 let exOpen = false;
 let histOpen = false;
+let snoozeOpen = true;
+let historyApp = "", historyResult = "";
 let unOpen = false;
 
 function iconHtml(path, kind, name) {
@@ -465,8 +559,11 @@ function iconHtml(path, kind, name) {
 function rowHtml(i, busy, ex) {
   const job = data.jobs[i.id];
   const st = i.updated ? "done" : i.moved ? "moved" : job?.status;
+  const paused = i.snooze;
   const det = job?.log ? ` <a class="details" data-details="${esc(i.id)}" href="#">${L.details}</a>` : "";
   const status =
+    paused ? esc(paused.version ? `${L.skipped}: ${paused.version}` : `${L.until} ${new Date(paused.until * 1000).toLocaleString(locale())}`) :
+    ["restart", "restart_before", "unverified", "deferred"].includes(st) ? esc(L.res[st]) + det :
     st === "done" ? L.done + det :
     st === "running" ? (job.pct !== null && job.pct !== undefined ? "" : '<span class="spin"></span>') :
     st === "queued" ? "" :
@@ -476,15 +573,18 @@ function rowHtml(i, busy, ex) {
     st === "moved" ? L.moved + det : "";
   const act = busy || st === "running" || st === "queued" || st === "blocked" ? "" :
     `<button type="button" class="act" data-act="${ex ? "include" : "exclude"}">${ex ? L.include : L.exclude}</button>`;
-  return `<li class="${st === "done" || st === "moved" ? "done" : ""}">
+  const postpone = busy || i.updated || i.moved ? "" : paused
+    ? `<button type="button" class="mini" data-resume="${esc(i.id)}">${L.resume}</button>`
+    : `<select class="snooze-select" aria-label="${esc(L.snooze + ' ' + i.name)}" data-snooze="${esc(i.id)}"><option value="">${L.snooze}</option><option value="day">${L.day}</option><option value="week">${L.week}</option><option value="version">${L.skipVersion}</option></select>`;
+  return `<li class="${st === "done" || st === "moved" ? "done" : ""} ${selected.has(i.id) && !paused ? "selected" : ""}">
     <div class="row" data-id="${esc(i.id)}" data-key="${esc(i.key)}">
-      <input type="checkbox" aria-label="${esc(i.name)}" ${selected.has(i.id) ? "checked" : ""} ${busy || i.updated || i.moved ? "disabled" : ""}>
+      <input type="checkbox" aria-label="${esc(i.name)}" ${selected.has(i.id) ? "checked" : ""} ${busy || i.updated || i.moved || paused ? "disabled" : ""}>
       ${iconHtml(i.path, i.kind, i.name)}
       <div style="min-width:0">
         <div class="name">${esc(i.name)}${i.major ? `<span class="tag">${L.major}</span>` : ""}${i.verified === false ? `<span class="tag">${L.unverified}</span>` : ""}</div>
-        <div class="meta">${esc(i.installed)}<span class="arrow">→</span>${esc(i.latest)} · ${esc(L.sources[i.source] || i.source)}</div>
+        <div class="meta">${esc(i.installed)}<span class="arrow">→</span><span class="new-version">${esc(i.latest)}</span><span class="source">${esc(L.sources[i.source] || i.source)}</span></div>
       </div>
-      <div class="status ${st || ""}">${status}${act}</div>
+      <div class="status ${st || ""}">${status}<div class="row-actions">${postpone}${act}</div></div>
       ${st === "running" || st === "queued" ? jobProgress(i.id, job) : ""}
     </div>
     ${openLogs.has(i.id) && job?.log ? `<pre class="log">${esc(job.log)}</pre>` : ""}
@@ -500,6 +600,11 @@ function renderSettings() {
   set("#s_auto", "checked", st.auto_update);
   set("#s_auto_time", "value", st.auto_time);
   set("#s_login", "checked", st.login);
+  set("#s_ac", "checked", st.only_ac);
+  set("#s_metered", "checked", st.avoid_metered);
+  set("#s_theme", "value", st.theme || "system");
+  document.documentElement.dataset.theme = st.theme || "system";
+  $("#nextauto").textContent = st.auto_update ? [L.waitReasons[data.auto_wait], data.next_auto ? `${L.nextAuto}: ${new Date(data.next_auto * 1000).toLocaleString(locale())}` : ""].filter(Boolean).join(" · ") : "";
   const on = st.daily_check || st.auto_update;
   $("#autodot").className = "dot" + (on && st.login ? " on" : "");
   $("#autolabel").textContent = !on ? L.autoOff : st.auto_update ? L.autoNightly(st.auto_time) : L.autoDaily(st.check_time);
@@ -512,13 +617,17 @@ function renderSettings() {
   const la = st.last_auto;
   $("#lastauto").textContent = la ? L.lastAuto(ago(la.at), la.updated.length)
     + (la.failed.length ? L.lastAutoFailed(la.failed.length, la.failed.join(", ")) : "")
-    + (la.postponed.length ? L.lastAutoPostponed(la.postponed.join(", ")) : "") : "";
+    + (la.postponed.length ? L.lastAutoPostponed(la.postponed.join(", ")) : "")
+    + (la.attention?.length ? ` · ${L.unverifiedResult}: ${la.attention.join(", ")}` : "") : "";
 }
 
 async function saveSettings(patch) {
   try { data = await api("/api/settings", patch); } catch (e) { alert(e.message); }
   render();
 }
+$("#s_ac").onchange = e => saveSettings({ only_ac: e.target.checked });
+$("#s_metered").onchange = e => saveSettings({ avoid_metered: e.target.checked });
+$("#s_theme").onchange = e => saveSettings({ theme: e.target.value });
 $("#s_daily").onchange = e => saveSettings({ daily_check: e.target.checked });
 $("#s_auto").onchange = e => saveSettings({ auto_update: e.target.checked });
 $("#s_login").onchange = e => saveSettings({ login: e.target.checked });
@@ -570,7 +679,7 @@ function renderWelcome() {
 function render() {
   const busy = data.scanning || data.running;
   const items = data.items;
-  const main = items.filter(i => !isEx(i));
+  const main = items.filter(i => !isEx(i) && !i.snooze);
   const todo = main.filter(i => !i.updated && !i.moved);
   const allPending = pending();
 
@@ -578,7 +687,7 @@ function render() {
     todo.forEach(i => { if (!i.major && i.verified !== false) selected.add(i.id); });
     firstLoad = false;
   }
-  for (const id of [...selected]) if (!allPending.find(i => i.id === id)) selected.delete(id);
+  for (const id of [...selected]) if (!allPending.find(i => i.id === id && !i.snooze)) selected.delete(id);
 
   $("#sub").innerHTML = data.scanning
     ? `<span class="spin"></span>${L.scanning}`
@@ -599,7 +708,7 @@ function render() {
   const updatingApps = data.running && data.batch && !(data.self && data.self.status);
   // durante un giro il pulsante diventa "Interrompi": finisce l'installazione in corso e salta le altre
   $("#go").disabled = updatingApps ? !!data.stopping : (busy || n === 0);
-  $("#go").textContent = updatingApps ? L.interrupt : n && n === todo.length && nMain === n ? L.updateAll : n ? L.updateN(n) : L.update;
+  $("#go").textContent = updatingApps ? L.interrupt : n ? L.updateN(n) : L.update;
 
   if (data.version)
     $("#version").innerHTML = `${data.demo ? esc(L.demo) + " · " : ""}${L.version} ${esc(data.version)} · <a href="https://github.com/${esc(data.repo)}/blob/main/CHANGELOG.md" target="_blank" rel="noopener">${L.news}</a>`;
@@ -610,14 +719,15 @@ function render() {
   const lh = $("#loginhint");
   if (data.settings && !data.settings.login && !(data.settings.daily_check || data.settings.auto_update)) { lh.textContent = L.loginOffHint; lh.className = "hint"; }
 
-  const sig = JSON.stringify([lang, data.stale, (data.scan_warnings || []).join(), (data.history || []).length, histOpen, data.self && [data.self.available, data.self.status, selfLogOpen], busy, data.scanning, [...selected], [...openLogs], Object.keys(excluded()), (data.unchecked || []).length, (data.macos || []).join(), items.map(i => {
+  const sig = JSON.stringify([lang, data.stale, (data.scan_warnings || []).join(), JSON.stringify(data.history || []), historyApp, historyResult, data.self && [data.self.available, data.self.status, selfLogOpen], busy, data.scanning, [...selected], [...openLogs], Object.keys(excluded()), (data.unchecked || []).length, (data.macos || []).join(), items.map(i => {
     const j = data.jobs[i.id];
-    return [i.id, i.updated, j?.status, openLogs.has(i.id) ? j?.log : ""];
+    return [i.id, i.updated, i.snooze, j?.status, openLogs.has(i.id) ? j?.log : ""];
   })]);
   if (sig === lastSig) return patchProgress();
   lastSig = sig;
 
   let html = selfBanner();
+  if (Object.values(data.jobs).some(j => ["restart", "restart_before", "unverified"].includes(j.status))) html += `<p class="review-notice" role="status">${L.pendingReview}</p>`;
   const warns = data.scan_warnings || [];
   if (!data.scan_error && warns.length)
     html += `<p class="warn-line">${warns.map(w => w === "windows_update" ? L.warnWU : L.warnSrc).filter((v, i, a) => a.indexOf(v) === i).join(" ")}</p>`;
@@ -625,9 +735,9 @@ function render() {
     html += `<div class="notice"><div><div class="name">${L.macos}</div><div class="meta">${data.macos.map(esc).join(" · ")}</div></div><button type="button" id="openSU">${L.openSettings}</button></div>`;
   }
   if (!main.length) {
-    html += data.scanning || data.scan_error ? "" : `<div class="empty"><strong>${L.allUpToDate}</strong>${L.noneNeeded}</div>`;
+    html += data.scanning || data.scan_error ? "" : `<div class="empty"><strong>${L.allUpToDate}</strong>${items.some(i => i.snooze || isEx(i)) ? L.noEligible : L.noneNeeded}</div>`;
   } else {
-    html += `<div class="bar"><label><input type="checkbox" id="all" ${todo.length && nMain === todo.length ? "checked" : ""} ${busy || !todo.length ? "disabled" : ""}> ${L.selectAll}</label><span>${nMain} ${L.of} ${todo.length}</span></div>`;
+    html += `<section class="apps-panel"><div class="bar"><label><input type="checkbox" id="all" ${todo.length && nMain === todo.length ? "checked" : ""} ${busy || !todo.length ? "disabled" : ""}> ${L.selectAll}</label><span>${nMain} ${L.of} ${todo.length}</span></div>`;
     const groups = [
       [L.apps, main.filter(i => !i.system)],
       [L.system, main.filter(i => i.system)],
@@ -635,7 +745,10 @@ function render() {
     for (const [title, list] of groups) {
       html += `<h2>${title}</h2><ul>${list.map(i => rowHtml(i, busy, false)).join("")}</ul>`;
     }
+    html += "</section>";
   }
+  const snoozed = items.filter(i => i.snooze && !isEx(i));
+  if (snoozed.length) html += `<details class="excluded snoozed" ${snoozeOpen ? "open" : ""}><summary>${L.snoozed} · ${snoozed.length}</summary><ul>${snoozed.map(i => rowHtml(i, busy, false)).join("")}</ul></details>`;
 
   // sezione separata: app escluse dalla verifica
   const ex = Object.entries(excluded()).sort((a, b) => a[1].name.localeCompare(b[1].name));
@@ -650,7 +763,7 @@ function render() {
       html += `<li><div class="row static" data-key="${esc(key)}">
         <span></span>${iconHtml(info.path, info.kind, info.name)}
         <div style="min-width:0"><div class="name">${esc(info.name)}</div><div class="meta">${data.scanning ? L.scanning : L.noUpdate}</div></div>
-        <div class="status">${busy ? "" : `<span class="act" data-act="include">${L.include}</span>`}</div>
+        <div class="status">${busy ? "" : `<button type="button" class="act" data-act="include">${L.include}</button>`}</div>
       </div></li>`;
     }
     html += "</ul></details>";
@@ -673,22 +786,60 @@ function render() {
     html += "</ul></details>";
   }
   const hist = (data.history || []).slice().reverse();
-  if (hist.length && !data.scanning) {
-    html += `<details class="excluded hist" ${histOpen ? "open" : ""}><summary>${L.history} · ${hist.length}</summary><ul class="history">`;
-    for (const h of hist)
-      html += `<li><span>${esc(h.name)} ${esc(h.from || "")} → ${esc(h.to || "")}</span><span>${esc(L.res[h.result] || h.result)} · ${ago(h.at)}</span></li>`;
-    html += "</ul></details>";
-  }
+  html += `<details class="excluded hist" ${histOpen ? "open" : ""}><summary>${L.history} · ${hist.length}</summary>
+    <div class="history-tools"><select id="history-app" aria-label="${L.apps}"><option value="">${L.allApps}</option>${[...new Set(hist.map(h => h.name))].sort().map(n => `<option ${historyApp === n ? "selected" : ""} value="${esc(n)}">${esc(n)}</option>`).join("")}</select>
+    <select id="history-result" aria-label="${L.allResults}"><option value="">${L.allResults}</option>${Object.entries(L.res).map(([k,v]) => `<option value="${k}" ${historyResult === k ? "selected" : ""}>${esc(v)}</option>`).join("")}</select>
+    <button id="export-report" type="button">${L.exportReport}</button></div><p class="note">${L.reportHint}</p><ul class="history">`;
+  const filtered = hist.filter(h => (!historyApp || h.name === historyApp) && (!historyResult || h.result === historyResult));
+  if (!filtered.length) html += `<li>${L.noHistory}</li>`;
+  for (const h of filtered) html += `<li><details><summary><span>${esc(h.name)}</span><span class="history-result ${esc(h.result)}">${esc(L.res[h.result] || h.result)} · ${ago(h.at)}</span></summary>
+    <p>${esc(h.from || "?")} → ${esc(h.to || "?")} · ${L.detected}: ${esc(h.observed || "?")}<br>${L.exitCode}: ${esc(h.exit_code ?? "—")} · ${L.schedule}: ${esc(h.mode || "—")}</p>${h.log ? `<pre class="log">${esc(h.log)}</pre>` : ""}</details></li>`;
+  html += "</ul></details>";
+  const focus = document.activeElement;
+  const focusId = focus?.id;
+  const focusRow = focus?.closest(".row")?.dataset.id;
+  const focusAttr = ["data-act", "data-details", "data-snooze", "data-resume", "data-force", "data-dismiss"].find(k => focus?.hasAttribute(k));
+  const focusValue = focusAttr && focus.getAttribute(focusAttr);
   $("#list").innerHTML = html;
+  let restored = focusId ? document.getElementById(focusId) : focusRow
+    ? [...document.querySelectorAll(".row")].find(r => r.dataset.id === focusRow)?.querySelector(focusAttr ? `[${focusAttr}]` : "input") : null;
+  if (restored && (!focusAttr || restored.getAttribute(focusAttr) === focusValue)) restored.focus({preventScroll:true});
+  if (!restored && focusRow && ["data-snooze", "data-resume"].includes(focusAttr)) {
+    restored = [...document.querySelectorAll("[data-snooze], [data-resume]")].find(el => el.dataset.snooze === focusRow || el.dataset.resume === focusRow);
+    restored?.focus({preventScroll:true});
+  }
+  const allBox = $("#all");
+  if (allBox) allBox.indeterminate = nMain > 0 && nMain < todo.length;
+  const snDet = $("#list details.snoozed");
+  if (snDet) snDet.addEventListener("toggle", () => { snoozeOpen = snDet.open; });
   const hDet = $("#list details.hist");
   if (hDet) hDet.addEventListener("toggle", () => { histOpen = hDet.open; });
   const unDet = $("#list details.unchecked");
   if (unDet) unDet.addEventListener("toggle", () => { unOpen = unDet.open; });
-  const det = $("#list details.excluded:not(.unchecked):not(.hist)");
+  const det = $("#list details.excluded:not(.unchecked):not(.hist):not(.snoozed)");
   if (det) det.addEventListener("toggle", () => { exOpen = det.open; });
 }
 
+$("#list").addEventListener("change", async e => {
+  if (e.target.id === "history-app") { historyApp = e.target.value; return render(); }
+  if (e.target.id === "history-result") { historyResult = e.target.value; return render(); }
+  if (e.target.matches("[data-snooze]") && e.target.value) {
+    selected.delete(e.target.dataset.snooze);
+    return act("/api/snooze", {id:e.target.dataset.snooze, choice:e.target.value});
+  }
+});
 $("#list").addEventListener("click", async e => {
+  if (e.target.id === "export-report") {
+    try {
+      const report = await api("/api/diagnostics");
+      const url = URL.createObjectURL(new Blob([JSON.stringify(report, null, 2)], {type:"application/json"}));
+      const link = document.createElement("a"); link.href = url; link.download = "aggiornamenti-diagnostica.json"; link.click(); setTimeout(() => URL.revokeObjectURL(url), 1000);
+    } catch (err) { alert(L.actionFailed + err.message); }
+    return;
+  }
+  if (e.target.closest("select, .hist")) return;
+  const resume = e.target.closest("[data-resume]");
+  if (resume) return act("/api/snooze", {id:resume.dataset.resume, choice:"resume"});
   if (e.target.id === "openSU") return api("/api/open-software-update", {});
   if (e.target.id === "selfInstall") {
     try { data = await api("/api/self-update", {}); } catch (err) { alert(err.message); }
@@ -696,7 +847,7 @@ $("#list").addEventListener("click", async e => {
   }
   if (e.target.id === "selfLogToggle") { e.preventDefault(); selfLogOpen = !selfLogOpen; return render(); }
   if (e.target.id === "all") {
-    const main = pending().filter(i => !isEx(i));
+    const main = pending().filter(i => !isEx(i) && !i.snooze);
     if (e.target.checked) main.forEach(i => selected.add(i.id)); else main.forEach(i => selected.delete(i.id));
     return render();
   }
@@ -759,7 +910,7 @@ async function poll() {
     // dopo l'aggiornamento di sé stesso il server riparte con un'altra versione: si ricarica la pagina
     if (startVersion && data.version !== startVersion) return location.reload();
     startVersion = startVersion || data.version;
-    // la lingua del Mac (dal server) prevale su quella del browser
+    // la lingua di Windows (dal server) prevale su quella del browser
     if (!langFromServer && data.lang) { setLang(data.lang); applyStatic(); langFromServer = true; }
     // Esci dall'icona: il programma avvisa prima di chiudersi e la finestra si chiude con lui
     if (data.quitting) { window.close(); return showGone(); }

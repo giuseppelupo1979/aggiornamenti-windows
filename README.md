@@ -40,10 +40,14 @@ Hai saltato la scelta o vuoi cambiarla? In fondo alla finestra trovi **Privilegi
 ## Come si usa
 
 - **Clicca sui programmi** da aggiornare, oppure su **Seleziona tutto**, poi premi **Aggiorna**. Una barra mostra cosa sta succedendo per ogni programma. Durante il giro il pulsante diventa **Interrompi**: finisce l'installazione in corso e lascia le altre per dopo.
-- Viene installata **esattamente la versione che vedi** nell'elenco, non una più nuova uscita nel frattempo.
+- Per i pacchetti della sorgente winget viene richiesta **la versione che vedi** nell’elenco. Il Microsoft Store gestisce la versione disponibile. Dopo l’installazione si ricontrolla la versione: se non coincide o non è leggibile compare **Da verificare**, anziché un successo non confermato. **Riavvio necessario** indica che devi riavviare Windows e poi premere Controlla; il programma non riavvia il PC da solo.
+- **Rimanda…** permette di aspettare 24 ore, una settimana o saltare solo la versione proposta. Le app passano in **Rimandate** e non vengono aggiornate finché il rinvio è attivo; **Riprendi** lo annulla.
 - I programmi segnati **versione maggiore** (un grande salto di versione) non vengono selezionati da soli: aggiornali solo se sai che ti serve.
 - **Escludi**, accanto a ogni programma, lo toglie dall'elenco **per sempre**: non viene più proposto né aggiornato di notte. Lo ritrovi in fondo, nella sezione *Escluse*, dove **Includi** lo rimette in elenco.
 - In **Controllo automatico** puoi farti avvisare ogni giorno con una notifica, oppure lasciare che aggiorni da solo di notte (tra le 3 e le 8: se il PC è spento, si riprova la notte dopo). Puoi anche spegnere tutto: con **Avvia all'accensione** disattivato Aggiornamenti funziona **solo quando lo apri tu**, e con *Esci* si chiude del tutto.
+- Per gli aggiornamenti automatici sono attive **Solo quando collegato alla corrente** ed **Evita connessioni a consumo**. Se le condizioni non sono soddisfatte o non sono verificabili, si riprova ogni cinque minuti entro la finestra notturna; motivo e prossimo tentativo sono nelle impostazioni. Gli aggiornamenti manuali restano disponibili.
+- **Storico** conserva fino a 300 tentativi, con filtri per app ed esito e dettagli anche dopo un riavvio. **Esporta diagnostica** salva un rapporto JSON sul PC: oscura percorsi utente, email, URL e credenziali riconoscibili, ma contiene i nomi delle app. Controllalo prima di condividerlo; non viene inviato automaticamente.
+- In **Aspetto** scegli **Come Windows**, **Chiaro** o **Scuro**. I comandi principali restano visibili durante lo scorrimento.
 - Se un programma da aggiornare è aperto, Aggiornamenti gli chiede di chiudersi, lo aggiorna e lo riapre. Se non si chiude da solo (per esempio perché chiede di salvare), **non lo forza**: la riga mostra **Forza chiusura** e **Rimanda**, e decidi tu. Di notte un programma aperto non viene mai chiuso: si rimanda.
 - L'**icona vicino all'orologio** mostra un pallino quando ci sono aggiornamenti; cliccala per aprire la finestra o per controllare subito.
 - Quando esce una nuova versione di Aggiornamenti stesso, compare un riquadro in alto con il pulsante **Installa**.

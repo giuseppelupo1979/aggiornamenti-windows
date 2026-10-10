@@ -9,6 +9,7 @@ Solo libreria standard. Ascolta soltanto su 127.0.0.1.
 """
 
 import concurrent.futures as cf
+import copy
 import ctypes
 import datetime as dt
 import glob
@@ -26,7 +27,7 @@ import urllib.request
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import urlparse
 
-VERSION = "0.3.0"   # tenere allineata con CHANGELOG.md
+VERSION = "0.4.0"   # tenere allineata con CHANGELOG.md
 # --demo: dati finti, cartelle temporanee, nessuna modifica al sistema (per prove e screenshot)
 DEMO = "--demo" in sys.argv
 HOST = "127.0.0.1"
@@ -76,6 +77,7 @@ MESSAGES = {
     "upd_ok": ("{n} app aggiornata", "{n} app aggiornate", "{n} app updated", "{n} apps updated"),
     "upd_fail": ("{n} non riuscita", "{n} non riuscite", "{n} failed", "{n} failed"),
     "upd_postponed": ("{n} rimandata perché aperta", "{n} rimandate perché aperte", "{n} postponed (in use)", "{n} postponed (in use)"),
+    "upd_attention": ("{n} da verificare o riavviare",) * 2 + ("{n} need verification or restart",) * 2,
     "freed": ("liberati {x}", "liberati {x}", "{x} freed", "{x} freed"),
     "auto_title": ("Aggiornamento automatico",) * 2 + ("Automatic update",) * 2,
     "test": ("Le notifiche funzionano. Un clic qui apre la pagina.",) * 2 + ("Notifications work. Click here to open the page.",) * 2,
@@ -186,6 +188,7 @@ def run_stream(cmd, on_line, timeout=3600):
         return p.wait(), "\n".join(out)
     finally:
         timer.cancel()
+        p.stdout.close()
 
 
 def powershell(script, timeout=300):
@@ -244,9 +247,9 @@ def _load(path, default):
             data = json.load(f)
         if not isinstance(data, type(default)):
             raise ValueError("formato inatteso")
-        return {**default, **data} if isinstance(default, dict) else data
+        return {**copy.deepcopy(default), **data} if isinstance(default, dict) else data
     except Exception:
-        return type(default)(default)
+        return copy.deepcopy(default)
 
 
 def _save(path, data):
@@ -279,6 +282,7 @@ DEFAULT_SETTINGS = {
     "auto_update": False, "auto_time": "03:00",
     "last_check_day": None, "last_auto_day": None, "last_auto": None, "last_cleanup": None,
     "welcomed": False,
+    "only_ac": True, "avoid_metered": True, "theme": "system", "snoozed": {},
 }
 
 
@@ -305,6 +309,146 @@ def load_history():
 
 def save_settings(data):
     _save(SETTINGS_FILE, data)
+
+
+def redact(text):
+    """Best-effort local redaction, also applied before persisting installer output."""
+    text = str(text)
+    for key in ("USERPROFILE", "LOCALAPPDATA", "APPDATA", "TEMP", "TMP"):
+        value = os.environ.get(key)
+        if value and len(value) > 3:
+            text = re.sub(re.escape(value), "[user-path]", text, flags=re.I)
+    text = re.sub(r"(?i)[a-z]:[\\/]Users[\\/][^\\/\s\"']+", "[user-path]", text)
+    text = re.sub(r"/(?:Users|home)/[^/\s]+", "[user-path]", text)
+    text = re.sub(r"https?://[^\s<>\"']+", "[url]", text, flags=re.I)
+    text = re.sub(r"[\w.+-]+@[\w.-]+\.[A-Za-z]{2,}", "[email]", text)
+    text = re.sub(r"\b(?:\d{1,3}\.){3}\d{1,3}\b", "[address]", text)
+    text = re.sub(r"(?i)((?:token|password|secret|api[_-]?key|authorization)\s*[:=]\s*)[^\r\n]+", r"\1[redacted]", text)
+    for key in ("USERNAME", "COMPUTERNAME"):
+        value = os.environ.get(key)
+        if value and len(value) > 2:
+            text = re.sub(r"\b" + re.escape(value) + r"\b", "[private]", text, flags=re.I)
+    return text
+
+
+def diagnostic_report():
+    s = load_settings()
+    with lock:
+        error = state["scan_error"]
+    # Intentionally omit environment, paths, exclusions and raw settings.
+    return {"version": VERSION, "created_at": time.time(), "platform": "windows",
+            "settings": {k: s[k] for k in ("daily_check", "check_time", "auto_update", "auto_time", "only_ac", "avoid_metered")},
+            "scan_error": redact(error) if error else None,
+            "history": [{k: redact(v) if isinstance(v, str) and k in ("log", "name") else v
+                         for k, v in h.items()} for h in load_history()]}
+
+
+def active_snooze(item, settings=None, now=None):
+    s = (settings if settings is not None else load_settings()).get("snoozed", {}).get(item["key"])
+    if not s:
+        return None
+    if s.get("version"):
+        return s if s["version"] == item.get("latest") else None
+    return s if s.get("until", 0) > (time.time() if now is None else now) else None
+
+
+def snooze_item(item, choice):
+    def change(s):
+        entries = s.setdefault("snoozed", {})
+        if choice == "resume":
+            entries.pop(item["key"], None)
+            return
+        entry = {"name": item["name"]}
+        if choice == "version":
+            entry["version"] = item["latest"]
+        else:
+            entry["until"] = time.time() + (1 if choice == "day" else 7) * 86400
+        entries[item["key"]] = entry
+    update_settings(change)
+
+
+def on_ac_power():
+    class PowerStatus(ctypes.Structure):
+        _fields_ = [("ac", ctypes.c_ubyte), ("flag", ctypes.c_ubyte),
+                    ("percent", ctypes.c_ubyte), ("reserved", ctypes.c_ubyte),
+                    ("life", ctypes.c_uint32), ("full_life", ctypes.c_uint32)]
+    try:
+        status = PowerStatus()
+        if ctypes.windll.kernel32.GetSystemPowerStatus(ctypes.byref(status)) and status.ac in (0, 1):
+            return status.ac == 1
+    except (AttributeError, OSError):
+        pass
+    return None
+
+
+def network_cost():
+    try:
+        rc, out = powershell(
+            "$ErrorActionPreference='Stop'; try { "
+            "[void][Windows.Networking.Connectivity.NetworkInformation,Windows,ContentType=WindowsRuntime];"
+            "$p=[Windows.Networking.Connectivity.NetworkInformation]::GetInternetConnectionProfile();"
+            "if (-not $p) { 'offline' } else { $c=$p.GetConnectionCost();"
+            "if ($c.Roaming -or $c.OverDataLimit -or $c.NetworkCostType -in @('Fixed','Variable')) { 'metered' }"
+            "elseif ($c.NetworkCostType -eq 'Unrestricted') { 'unrestricted' } else { 'unknown' } }"
+            "} catch { 'unknown' }", timeout=20)
+        value = out.strip().lower()
+        return value if rc == 0 and value in ("metered", "unrestricted", "offline") else "unknown"
+    except Exception:
+        return "unknown"
+
+
+def automatic_block_reason(settings=None):
+    if DEMO:
+        return None
+    s = settings if settings is not None else load_settings()
+    if s["only_ac"]:
+        ac = on_ac_power()
+        if ac is not True:
+            return "battery" if ac is False else "power_unknown"
+    if s["avoid_metered"]:
+        cost = network_cost()
+        if cost != "unrestricted":
+            return cost
+    return None
+
+
+def installed_version(item):
+    """Query exact ID and source; never infer success from a missing upgrade row."""
+    rc, out = run([WINGET, "list", "--id", item["token"], "--exact", "--source",
+                   item.get("source", "winget")] + WG_COMMON, timeout=120)
+    if rc != 0:
+        return None
+    rows = [r for r in parse_table(out) if r["id"].casefold() == item["token"].casefold()]
+    return rows[0]["version"] if len(rows) == 1 else None
+
+
+def version_matches(observed, expected):
+    if not observed or not expected:
+        return False
+    if not re.fullmatch(r"\d+(?:\.\d+)*", observed) or not re.fullmatch(r"\d+(?:\.\d+)*", expected):
+        return observed.casefold() == expected.casefold() and bool(vparts(expected))
+    def normalize(value):
+        parts = [int(p) for p in value.split(".")]
+        while len(parts) > 1 and parts[-1] == 0:
+            parts.pop()
+        return parts
+    return normalize(observed) == normalize(expected)
+
+
+def verify_install(item, log):
+    observed = None
+    for attempt in range(2):
+        try:
+            observed = installed_version(item)
+        except Exception as e:
+            log(redact(e))
+        if version_matches(observed, item.get("latest")):
+            return "done", observed
+        if attempt == 0:
+            time.sleep(1)
+    log(("Versione installata rilevata: " if LANG == "it" else "Detected installed version: ") + (observed or "?") +
+        (". Verifica non conclusiva: ripeti Controlla." if LANG == "it" else ". Verification inconclusive: check again."))
+    return "unverified", observed
 
 
 # ---------------------------------------------------------------- avvio all'accesso e privilegi
@@ -823,6 +967,8 @@ def demo_update(item):
     with lock:
         state["jobs"][jid]["status"] = "done"
         state["items"] = [{**i, "updated": True} if i["id"] == jid else i for i in state["items"]]
+    add_history({"name": item["name"], "from": item["installed"], "to": item["latest"],
+                 "observed": item["latest"], "result": "done", "mode": "demo", "log": "Demo", "exit_code": 0})
 
 
 # ---------------------------------------------------------------- scansione
@@ -915,7 +1061,16 @@ def update_one(item, mode="manual"):
                 state["jobs"][jid]["log"] = "\n".join(lines)[-6000:]
 
     status, reason, reopen_paths = "error", None, []
+    rc, observed = None, None
     try:
+        if mode == "auto":
+            blocked = automatic_block_reason()
+            if blocked:
+                with lock:
+                    state["auto_wait"] = blocked
+                log(blocked)
+                status = "deferred"
+                return
         procs = running_in(item.get("location", ""))
         if procs and mode == "auto":
             log(t("postponed_open", x=item["name"]))   # di notte un programma aperto si rimanda, sempre
@@ -944,10 +1099,20 @@ def update_one(item, mode="manual"):
         if source == "winget" and item.get("latest") and vparts(item["latest"]):
             cmd += ["--version", item["latest"]]
         on_line = winget_progress(jid)
-        rc, _ = run_stream(cmd, lambda l: (log(l), on_line(l)))
+        rc, output = run_stream(cmd, lambda l: (log(l), on_line(l)))
+        if output and not lines:
+            log(output)
         text = "\n".join(lines)
+        # winget AppInstallerErrors.h: distinguish restart to finish from restart before install.
+        code = rc & 0xFFFFFFFF
+        if code in (3010, 1641, 0x8A150109, 0x8A15010A, 0x8A15010B):
+            status = "restart_before" if code == 0x8A15010A else "restart"
+            log("Riavvio di Windows necessario. Ripeti Controlla dopo il riavvio." if LANG == "it" else
+                "Windows restart required. Check again after restarting.")
+            return
         if rc == 0:
-            status = "done"
+            set_progress(jid, phase="verify_install", pct=97)
+            status, observed = verify_install(item, log)
             return
         reason = ("tech_diff" if TECH_DIFF.search(text) else "not_found" if NOT_FOUND.search(text)
                   else "not_applicable" if NOT_APPLICABLE.search(text) else None)
@@ -985,7 +1150,8 @@ def update_one(item, mode="manual"):
                                             key=lambda u: u["name"].lower())
         try:
             add_history({"name": item["name"], "from": item.get("installed"), "to": item.get("latest"),
-                         "result": status, "mode": mode})
+                         "observed": observed, "result": status, "mode": mode, "exit_code": rc,
+                         "log": redact("\n".join(lines)[-12000:])})
         except Exception:
             pass
 
@@ -1049,9 +1215,11 @@ def do_updates(ids, mode="manual"):
     """Esegue la coda. Lo stato "in corso" viene sempre liberato, anche dopo un errore inatteso.
     Con "Interrompi" si finisce l'installazione in corso e le successive tornano da fare."""
     try:
+        settings = load_settings()
         with lock:
             state["stop"] = False
-            todo = [i for i in state["items"] if i["id"] in ids and not i.get("updated") and not i.get("moved")]
+            todo = [i for i in state["items"] if i["id"] in ids and not i.get("updated") and not i.get("moved")
+                    and not active_snooze(i, settings)]
             for i in todo:
                 state["jobs"][i["id"]] = {"status": "queued", "log": "", "phase": None, "pct": None,
                                           "bytes": None, "total": None}
@@ -1100,8 +1268,10 @@ def request_quit():
 
 def visible_pending():
     excluded = load_excluded()
+    settings = load_settings()
     with lock:
-        return [i for i in state["items"] if not i.get("updated") and not i.get("moved") and i.get("key") not in excluded]
+        return [i for i in state["items"] if not i.get("updated") and not i.get("moved")
+                and i.get("key") not in excluded and not active_snooze(i, settings)]
 
 
 def start_scan_sync():
@@ -1140,11 +1310,15 @@ def scheduled_check():
 def auto_update():
     """Aggiornamento notturno. Restituisce False se non è potuto partire (programma occupato), così
     lo scheduler riprova invece di considerare fatta la giornata."""
-    if not start_scan_sync():
+    blocked = automatic_block_reason()
+    with lock:
+        state["auto_wait"] = blocked
+    if blocked or not start_scan_sync():
         return False
     with lock:
         if state["stale"]:
-            return True   # scansione fallita: niente aggiornamenti alla cieca, si riprova domani
+            state["auto_wait"] = "scan_failed"
+            return False
     ids = [i["id"] for i in visible_pending() if not i.get("major") and i.get("verified") is not False]
     if ids:
         with lock:
@@ -1159,10 +1333,11 @@ def auto_update():
         names = {i["id"]: i["name"] for i in state["items"]}
     updated = [names[k] for k, st in jobs.items() if st == "done"]
     failed = [names[k] for k, st in jobs.items() if st in ("error", "blocked")]
+    attention = [names[k] for k, st in jobs.items() if st in ("unverified", "restart", "restart_before")]
     postponed = [names[k] for k, st in jobs.items() if st == "postponed"]
     s = update_settings(lambda st: st.update(last_auto={"at": time.time(), "updated": updated,
-                                                        "failed": failed, "postponed": postponed}))
-    if updated or failed or postponed:
+                                                        "failed": failed, "postponed": postponed, "attention": attention}))
+    if updated or failed or postponed or attention:
         parts = []
         if updated:
             parts.append(t("upd_ok", len(updated)))
@@ -1170,14 +1345,38 @@ def auto_update():
             parts.append(t("upd_fail", len(failed)))
         if postponed:
             parts.append(t("upd_postponed", len(postponed)))
+        if attention:
+            parts.append(t("upd_attention", len(attention)))
         lc = s.get("last_cleanup") or {}
         if lc.get("freed"):
             parts.append(t("freed", x=human(lc["freed"])))
         notify(t("auto_title"), ", ".join(parts))
-    return True
+    return not any(st == "deferred" for st in jobs.values())
 
 
 NIGHT_WINDOW_HOURS = 5   # l'aggiornamento "notturno" recupera al risveglio solo entro 5 ore dall'orario scelto
+
+
+def schedule_start(hhmm, now):
+    h, m = map(int, hhmm.split(":"))
+    return now.replace(hour=h, minute=m, second=0, microsecond=0)
+
+
+def night_start(hhmm, now):
+    start = schedule_start(hhmm, now)
+    return start - dt.timedelta(days=1) if now < start else start
+
+
+def next_auto_attempt(settings, now=None):
+    if not settings["auto_update"]:
+        return None
+    now = now or dt.datetime.now()
+    start = night_start(settings["auto_time"], now)
+    end = start + dt.timedelta(hours=NIGHT_WINDOW_HOURS)
+    retry = dt.datetime.fromtimestamp(state.get("auto_retry_at", 0))
+    if settings["last_auto_day"] != start.date().isoformat() and now < end and retry < end:
+        return max(now + dt.timedelta(seconds=30), retry).timestamp()
+    return (start + dt.timedelta(days=1)).timestamp()
 
 
 def due(hhmm, last_day, now, window_hours=None):
@@ -1186,8 +1385,8 @@ def due(hhmm, last_day, now, window_hours=None):
         h, m = map(int, hhmm.split(":"))
     except Exception:
         return False
-    start = now.replace(hour=h, minute=m, second=0, microsecond=0)
-    if last_day == now.date().isoformat() or now < start:
+    start = night_start(hhmm, now) if window_hours is not None else now.replace(hour=h, minute=m, second=0, microsecond=0)
+    if last_day == start.date().isoformat() or now < start:
         return False
     return window_hours is None or now < start + dt.timedelta(hours=window_hours)
 
@@ -1199,10 +1398,16 @@ def scheduler():
             now = dt.datetime.now()
             today = now.date().isoformat()
             s = load_settings()
-            if s["auto_update"] and due(s["auto_time"], s["last_auto_day"], now, NIGHT_WINDOW_HOURS):
+            if s["auto_update"] and due(s["auto_time"], s["last_auto_day"], now, NIGHT_WINDOW_HOURS) and time.time() >= state.get("auto_retry_at", 0):
                 # la giornata si segna come fatta solo se l'aggiornamento è davvero partito
                 if auto_update():
-                    update_settings(lambda st: st.update(last_auto_day=today, last_check_day=today))
+                    day = night_start(s["auto_time"], now).date().isoformat()
+                    update_settings(lambda st: st.update(last_auto_day=day, last_check_day=today))
+                    with lock:
+                        state["auto_retry_at"] = 0
+                else:
+                    with lock:
+                        state["auto_retry_at"] = time.time() + 300
             elif s["daily_check"] and due(s["check_time"], s["last_check_day"], now):
                 if scheduled_check():
                     update_settings(lambda st: st.update(last_check_day=today))
@@ -1390,21 +1595,24 @@ class Handler(BaseHTTPRequestHandler):
     def snapshot(self):
         available, method = self_update_available(), install_method()
         history = load_history()
+        settings = load_settings()
         with lock:
             return {
                 "scanning": state["scanning"], "scanned_at": state["scanned_at"],
-                "scan_error": state["scan_error"], "items": state["items"], "jobs": state["jobs"],
+                "scan_error": state["scan_error"],
+                "items": [{**i, "snooze": active_snooze(i, settings)} for i in state["items"]], "jobs": state["jobs"],
                 "running": state["running"], "batch": state["batch"], "cleaning": state["cleaning"],
                 "version": VERSION, "lang": LANG, "demo": DEMO, "platform": "windows",
                 "repo": REPO, "admin": is_admin() or DEMO,
                 "self": {**state["self"], "available": available, "method": method},
                 "excluded": load_excluded(), "unchecked": state["unchecked"], "macos": state["macos"],
-                "settings": {**load_settings(), "login": _task["login"], "notifier": True},
+                "settings": {**settings, "login": _task["login"], "notifier": True},
+                "auto_wait": state.get("auto_wait"), "next_auto": next_auto_attempt(settings),
                 "admin_task": _task["exists"],
                 "password": is_admin() or DEMO,
                 "scan_warnings": state["scan_warnings"], "stale": state["stale"],
                 "stopping": state["stop"], "quitting": state["quit_after"] or state.get("quitting", False),
-                "history": history[-30:],
+                "history": history,
             }
 
     def host_ok(self):
@@ -1426,8 +1634,13 @@ class Handler(BaseHTTPRequestHandler):
         if u.path == "/":
             with open(os.path.join(RES, "index.html"), "rb") as f:
                 return self.send(200, f.read(), "text/html; charset=utf-8")
+        if u.path == "/favicon.ico":
+            with open(os.path.join(RES, "assets", "app.ico"), "rb") as f:
+                return self.send(200, f.read(), "image/x-icon")
         if u.path == "/api/state":
             return self.send(200, self.snapshot())
+        if u.path == "/api/diagnostics":
+            return self.send(200, diagnostic_report())
         if u.path == "/api/icon":
             from urllib.parse import parse_qs
             key = parse_qs(u.query).get("path", [""])[0]
@@ -1447,6 +1660,8 @@ class Handler(BaseHTTPRequestHandler):
         try:
             n = int(self.headers.get("Content-Length") or 0)
         except ValueError:
+            return self.send(400, {"error": "bad length"})
+        if n < 0:
             return self.send(400, {"error": "bad length"})
         if n > 64 * 1024:
             return self.send(413, {"error": "too large"})
@@ -1468,11 +1683,29 @@ class Handler(BaseHTTPRequestHandler):
             if not isinstance(ids, list) or not all(isinstance(x, str) for x in ids):
                 return self.send(400, {"error": "ids must be a list of strings"})
             ids = set(ids)
+            settings = load_settings()
             with lock:
                 if state["running"] or state["scanning"] or not ids:
                     return self.send(409, {"error": t("busy")})
+                allowed = {i["id"] for i in state["items"] if not active_snooze(i, settings)
+                           and not i.get("updated") and not i.get("moved")}
+                if not ids <= allowed:
+                    return self.send(409, {"error": "Selection changed; check the list again"})
                 state["running"] = True
             threading.Thread(target=do_updates, args=(ids,), daemon=True).start()
+            return self.send(200, self.snapshot())
+        if u.path == "/api/snooze":
+            jid, choice = body.get("id"), body.get("choice")
+            if not isinstance(jid, str) or choice not in ("day", "week", "version", "resume"):
+                return self.send(400, {"error": "invalid snooze"})
+            with lock:
+                item = next((i for i in state["items"] if i["id"] == jid), None)
+                busy = state["running"] or state["scanning"]
+            if busy:
+                return self.send(409, {"error": t("busy")})
+            if not item:
+                return self.send(404, {"error": "unknown item"})
+            snooze_item(item, choice)
             return self.send(200, self.snapshot())
         if u.path == "/api/self-update":
             with lock:
@@ -1551,26 +1784,33 @@ class Handler(BaseHTTPRequestHandler):
             threading.Thread(target=job, daemon=True).start()
             return self.send(200, self.snapshot())
         if u.path == "/api/settings":
-            with files_lock:
-                s = load_settings()
-            now = dt.datetime.now()
-            for flag, tkey, dkey in (("daily_check", "check_time", "last_check_day"),
-                                     ("auto_update", "auto_time", "last_auto_day")):
-                changed = False
-                if flag in body and bool(body[flag]) != s[flag]:
-                    s[flag] = bool(body[flag])
-                    changed = True
-                if tkey in body and re.fullmatch(r"([01]\d|2[0-3]):[0-5]\d", str(body[tkey])):
-                    changed = changed or s[tkey] != body[tkey]
-                    s[tkey] = body[tkey]
-                if changed:
-                    h, m = map(int, s[tkey].split(":"))
-                    passed = now >= now.replace(hour=h, minute=m, second=0, microsecond=0)
-                    s[dkey] = now.date().isoformat() if passed else None
-            if "welcomed" in body:
-                s["welcomed"] = bool(body["welcomed"])
-            with files_lock:
-                save_settings(s)
+            for key in ("daily_check", "auto_update", "welcomed", "login", "only_ac", "avoid_metered"):
+                if key in body and not isinstance(body[key], bool):
+                    return self.send(400, {"error": "expected boolean: " + key})
+            for key in ("check_time", "auto_time"):
+                if key in body and (not isinstance(body[key], str) or not re.fullmatch(r"([01]\d|2[0-3]):[0-5]\d", body[key])):
+                    return self.send(400, {"error": "invalid time"})
+            if "theme" in body and body["theme"] not in ("system", "light", "dark"):
+                return self.send(400, {"error": "invalid theme"})
+            def change_settings(s):
+                now = dt.datetime.now()
+                for flag, tkey, dkey in (("daily_check", "check_time", "last_check_day"),
+                                         ("auto_update", "auto_time", "last_auto_day")):
+                    changed = any(k in body and body[k] != s[k] for k in (flag, tkey))
+                    for k in (flag, tkey):
+                        if k in body:
+                            s[k] = body[k]
+                    if changed:
+                        passed = now >= schedule_start(s[tkey], now)
+                        s[dkey] = now.date().isoformat() if passed else None
+                for key in ("welcomed", "only_ac", "avoid_metered", "theme"):
+                    if key in body:
+                        s[key] = body[key]
+            update_settings(change_settings)
+            if any(k in body for k in ("auto_update", "auto_time", "only_ac", "avoid_metered")):
+                with lock:
+                    state["auto_wait"] = None
+                    state["auto_retry_at"] = 0
             if "login" in body and not DEMO:
                 if not is_admin():
                     elevate_and_configure(bool(body["login"]))   # cambiare l'attività richiede i privilegi

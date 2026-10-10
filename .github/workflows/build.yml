@@ -6,7 +6,9 @@ name: build
 
 on:
   push:
+    branches: ["main"]
     tags: ["v*"]
+  pull_request:
   workflow_dispatch:
 
 permissions:
@@ -25,6 +27,7 @@ jobs:
 
   exe:
     needs: test
+    if: startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch'
     strategy:
       matrix:
         include:

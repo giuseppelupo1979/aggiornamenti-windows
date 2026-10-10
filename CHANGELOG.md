@@ -2,6 +2,31 @@
 
 Tutte le modifiche rilevanti al progetto. Le versioni seguono il [versionamento semantico](https://semver.org/lang/it/).
 
+## [0.4.0] - 2026-10-11
+
+### Aggiunto
+- Verifica della versione effettivamente installata dopo ogni installazione riuscita. Se non coincide con quella richiesta o non è leggibile, l'esito è **Da verificare**; i codici di riavvio di Windows/winget hanno uno stato dedicato, senza riavviare il PC automaticamente.
+- **Solo con alimentazione di rete** ed **Evita connessioni a consumo** per gli aggiornamenti automatici, attivi per impostazione predefinita. Se le condizioni sono sconosciute o sfavorevoli, si riprova ogni cinque minuti entro la finestra notturna. La pagina mostra motivo dell'attesa e prossimo tentativo.
+- **Rimanda per 24 ore**, **Per una settimana**, **Salta questa versione** e **Riprendi**. I rinvii persistono e valgono anche per la coda automatica; le esclusioni permanenti restano separate.
+- Storico degli ultimi 300 tentativi con versione richiesta e rilevata, modalità, codice di uscita, dettagli persistenti e filtri per app ed esito. Esportazione JSON della diagnostica con oscuramento dei dati personali riconoscibili, senza invio automatico.
+- Aspetto **Come Windows**, **Chiaro** o **Scuro**, salvato nelle impostazioni.
+
+### Interfaccia
+- Accento blu per azioni, selezioni e avanzamento; verde per successi e ambra per avvisi.
+- Elenco e impostazioni in pannelli, versioni più leggibili e righe selezionate evidenziate.
+- Caselle quadrate, azioni sempre visibili, focus da tastiera preservato nelle righe e supporto alla riduzione delle animazioni.
+- Intestazione compatta che resta visibile durante lo scorrimento, pulsante **Aggiorna N app** e disposizione adattata alle finestre strette.
+
+### Corretto
+- Testi relativi a Windows, al risveglio entro cinque ore e all'avvio automatico.
+- Finestre di aggiornamento che attraversano la mezzanotte, scrittura atomica delle nuove impostazioni e isolamento delle impostazioni predefinite.
+- Notifiche automatiche distinguono gli errori dagli esiti che richiedono verifica o riavvio.
+
+### Verifica
+- 49 test automatici del server su verifica versioni, riavvii, rinvii, condizioni, API e oscuramento della diagnostica, oltre alle regressioni della 0.3.0.
+- Verifica nel browser: temi chiaro/scuro, rinvio e ripresa, selezione da tastiera, aggiornamento simulato, filtri dello storico, esportazione diagnostica, intestazione fissa e assenza di overflow a 320/360 pixel.
+- La prova end-to-end nella VM personale con installazioni reali resta da eseguire dopo l'aggiornamento dell'utente.
+
 ## [0.3.0] - 2026-10-09
 
 Nata da una revisione indipendente del codice (16 prove riproducibili) e dai suggerimenti di un utente.
