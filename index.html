@@ -677,6 +677,12 @@ function renderWelcome() {
 }
 
 function render() {
+  // Read native disclosure state synchronously: toggle events can arrive after a filter change.
+  histOpen = $("#list details.hist")?.open ?? histOpen;
+  snoozeOpen = $("#list details.snoozed")?.open ?? snoozeOpen;
+  unOpen = $("#list details.unchecked")?.open ?? unOpen;
+  exOpen = $("#list details.excluded:not(.unchecked):not(.hist):not(.snoozed)")?.open ?? exOpen;
+  const historyDetails = new Set([...document.querySelectorAll("[data-history][open]")].map(el => el.dataset.history));
   const busy = data.scanning || data.running;
   const items = data.items;
   const main = items.filter(i => !isEx(i) && !i.snooze);
@@ -792,7 +798,7 @@ function render() {
     <button id="export-report" type="button">${L.exportReport}</button></div><p class="note">${L.reportHint}</p><ul class="history">`;
   const filtered = hist.filter(h => (!historyApp || h.name === historyApp) && (!historyResult || h.result === historyResult));
   if (!filtered.length) html += `<li>${L.noHistory}</li>`;
-  for (const h of filtered) html += `<li><details><summary><span>${esc(h.name)}</span><span class="history-result ${esc(h.result)}">${esc(L.res[h.result] || h.result)} · ${ago(h.at)}</span></summary>
+  for (const h of filtered) html += `<li><details data-history="${esc(h.at + ':' + h.name)}" ${historyDetails.has(h.at + ':' + h.name) ? "open" : ""}><summary><span>${esc(h.name)}</span><span class="history-result ${esc(h.result)}">${esc(L.res[h.result] || h.result)} · ${ago(h.at)}</span></summary>
     <p>${esc(h.from || "?")} → ${esc(h.to || "?")} · ${L.detected}: ${esc(h.observed || "?")}<br>${L.exitCode}: ${esc(h.exit_code ?? "—")} · ${L.schedule}: ${esc(h.mode || "—")}</p>${h.log ? `<pre class="log">${esc(h.log)}</pre>` : ""}</details></li>`;
   html += "</ul></details>";
   const focus = document.activeElement;
@@ -810,14 +816,7 @@ function render() {
   }
   const allBox = $("#all");
   if (allBox) allBox.indeterminate = nMain > 0 && nMain < todo.length;
-  const snDet = $("#list details.snoozed");
-  if (snDet) snDet.addEventListener("toggle", () => { snoozeOpen = snDet.open; });
-  const hDet = $("#list details.hist");
-  if (hDet) hDet.addEventListener("toggle", () => { histOpen = hDet.open; });
-  const unDet = $("#list details.unchecked");
-  if (unDet) unDet.addEventListener("toggle", () => { unOpen = unDet.open; });
-  const det = $("#list details.excluded:not(.unchecked):not(.hist):not(.snoozed)");
-  if (det) det.addEventListener("toggle", () => { exOpen = det.open; });
+
 }
 
 $("#list").addEventListener("change", async e => {
