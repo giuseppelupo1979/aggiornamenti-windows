@@ -17,6 +17,7 @@ import hashlib
 import json
 import os
 import re
+import secrets
 import shutil
 import subprocess
 import sys
@@ -27,7 +28,7 @@ import urllib.request
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import urlparse
 
-VERSION = "0.4.0"   # tenere allineata con CHANGELOG.md
+VERSION = "0.5.0"   # tenere allineata con CHANGELOG.md
 # --demo: dati finti, cartelle temporanee, nessuna modifica al sistema (per prove e screenshot)
 DEMO = "--demo" in sys.argv
 HOST = "127.0.0.1"
@@ -50,6 +51,7 @@ SUPPORT = (tempfile.mkdtemp(prefix="aggiornamenti-demo-") if DEMO
            else os.path.join(LOCAL, "AggiornamentiWin"))
 EXCLUDED_FILE = os.path.join(SUPPORT, "esclusi.json")
 SETTINGS_FILE = os.path.join(SUPPORT, "impostazioni.json")
+TOKEN_FILE = os.path.join(SUPPORT, "token")   # codice che finestra, icona e notifiche allegano ai comandi
 LOG_FILE = os.path.join(LOCAL, "AggiornamentiWin", "aggiornamenti.log")
 PAGE_URL = f"http://{HOST}:{PORT}"
 os.makedirs(CACHE, exist_ok=True)
@@ -128,6 +130,31 @@ state = {
     "scan_warnings": [], "stale": False, "stop": False, "quit_after": False,
     "self": {"latest": None, "url": None, "notes": "", "checked_at": 0, "status": None, "log": ""},
 }
+
+
+def load_token():
+    """Codice casuale, uguale tra un riavvio e l'altro, nella cartella dell'utente. Il programma che
+    apre la finestra lo passa nell'indirizzo (#t=...): un sito web o un programma che conosce solo la
+    porta non può comandare il server, che gira con i privilegi di amministratore."""
+    try:
+        with open(TOKEN_FILE, encoding="utf-8") as f:
+            tok = f.read().strip()
+        if len(tok) >= 32:
+            return tok
+    except OSError:
+        pass
+    tok = secrets.token_urlsafe(32)
+    with open(TOKEN_FILE + ".tmp", "w", encoding="utf-8") as f:
+        f.write(tok)
+    os.replace(TOKEN_FILE + ".tmp", TOKEN_FILE)
+    return tok
+
+
+TOKEN = load_token()
+
+
+def page_url():
+    return f"{PAGE_URL}/#t={TOKEN}"
 
 
 def log_line(*parts):
@@ -545,7 +572,7 @@ def notify(title, message):
         print("notifica:", title, "-", message, flush=True)
         return
     x = lambda s: s.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;").replace("'", "&apos;")
-    xml = (f"<toast activationType='protocol' launch='{PAGE_URL}'><visual><binding template='ToastGeneric'>"
+    xml = (f"<toast activationType='protocol' launch='{page_url()}'><visual><binding template='ToastGeneric'>"
            f"<text>{x(title)}</text><text>{x(message)}</text></binding></visual></toast>")
     script = (
         "[Windows.UI.Notifications.ToastNotificationManager, Windows.UI.Notifications, ContentType=WindowsRuntime] > $null;"
@@ -948,7 +975,9 @@ DEMO_ITEMS = [
 def demo_scan():
     time.sleep(2.5)
     items = [{"id": f"winget:{pid}", "kind": "winget", "token": pid, "name": n, "installed": a, "latest": b,
-              "source": s, "major": m, "verified": True, "key": f"winget:{pid}"} for n, pid, a, b, s, m in DEMO_ITEMS]
+              "source": s, "major": m, "verified": True, "key": f"winget:{pid}",
+              "notes": {"kind": "notes", "url": None, "text": f"{n} {b}\n• Demo: correzioni e miglioramenti"}}
+             for n, pid, a, b, s, m in DEMO_ITEMS]
     with lock:
         state.update(items=items, macos=[], scanning=False, scanned_at=time.time(),
                      unchecked=[{"name": "Driver audio Realtek", "version": "6.0.9", "reason": "no_source", "path": None},
@@ -967,8 +996,83 @@ def demo_update(item):
     with lock:
         state["jobs"][jid]["status"] = "done"
         state["items"] = [{**i, "updated": True} if i["id"] == jid else i for i in state["items"]]
-    add_history({"name": item["name"], "from": item["installed"], "to": item["latest"],
-                 "observed": item["latest"], "result": "done", "mode": "demo", "log": "Demo", "exit_code": 0})
+    add_history({"name": item["name"], "from": item["installed"], "to": item["latest"], "token": item["token"],
+                 "source": item.get("source"), "observed": item["latest"], "result": "done", "mode": "demo",
+                 "log": "Demo", "exit_code": 0})
+
+
+# ---------------------------------------------------------------- novità
+
+WINGET_PKGS = "https://raw.githubusercontent.com/microsoft/winget-pkgs/master/manifests"
+_notes_cache = {}
+
+
+def manifest_fields(text):
+    """Le poche chiavi di primo livello che servono da un manifest YAML di winget (senza librerie):
+    valori su una riga e blocchi `|-` indentati."""
+    out, key, block = {}, None, []
+    for line in text.splitlines():
+        if key and (line.startswith((" ", "\t")) or not line.strip()):
+            block.append(line.strip())
+            continue
+        if key:
+            out[key], key, block = "\n".join(block).strip(), None, []
+        m = re.match(r"^([A-Za-z]+):\s*(.*)$", line)
+        if m:
+            k, v = m.groups()
+            if v in ("|", "|-", ">", ">-"):
+                key = k
+            else:
+                out[k] = v.strip().strip("'\"")
+    if key:
+        out[key] = "\n".join(block).strip()
+    return out
+
+
+def winget_notes(item):
+    """Note di versione dal manifest pubblico di winget (indipendente dalla lingua di Windows):
+    testo delle novità se c'è, poi link alle note, poi sito del programma."""
+    pid, ver = item.get("token"), item.get("latest")
+    if item.get("source") == "msstore":
+        return {"kind": "store", "url": f"https://apps.microsoft.com/detail/{pid}"} if pid else None
+    if not pid or not ver or "." not in pid:
+        return None
+    if (pid, ver) in _notes_cache:
+        return _notes_cache[(pid, ver)]
+    base = f"{WINGET_PKGS}/{pid[0].lower()}/{'/'.join(pid.split('.'))}/{ver}/{pid}"
+
+    def get(url):
+        req = urllib.request.Request(url, headers={"User-Agent": "AggiornamentiWin"})
+        with urllib.request.urlopen(req, timeout=15) as r:
+            return r.read(512 * 1024).decode("utf-8", "replace")
+    notes = None
+    try:
+        locale = manifest_fields(get(base + ".yaml")).get("DefaultLocale") or "en-US"
+        f = manifest_fields(get(f"{base}.locale.{locale}.yaml"))
+        rn_url = f.get("ReleaseNotesUrl", "")
+        home = f.get("PackageUrl") or f.get("PublisherUrl") or ""
+        text = (f.get("ReleaseNotes") or "")[:4000]
+        if text or rn_url.startswith("https://"):
+            notes = {"kind": "notes", "text": text or None, "url": rn_url if rn_url.startswith("https://") else None}
+        elif home.startswith("https://"):
+            notes = {"kind": "site", "url": home}
+    except Exception:
+        notes = None   # manifest non trovato (versione non pubblicata con questo nome) o rete assente
+    _notes_cache[(pid, ver)] = notes
+    return notes
+
+
+def fill_notes(items):
+    """In sottofondo dopo ogni controllo: l'elenco compare subito, le novità arrivano dopo."""
+    def one(it):
+        n = winget_notes(it)
+        if n:
+            with lock:
+                for i in state["items"]:
+                    if i["id"] == it["id"]:
+                        i["notes"] = n
+    with cf.ThreadPoolExecutor(6) as ex:
+        list(ex.map(one, items))
 
 
 # ---------------------------------------------------------------- scansione
@@ -988,6 +1092,9 @@ def do_scan(force_self_check=False):
                          scan_warnings=warnings + ([] if wu is not None else ["windows_update"]),
                          scanned_at=time.time(), stale=False)
             state["jobs"] = {k: v for k, v in state["jobs"].items() if v["status"] == "running"}
+            if state.get("restore") and state["restore"]["status"] != "running":
+                state["restore"] = None
+        threading.Thread(target=fill_notes, args=([dict(i) for i in items],), daemon=True).start()
     except Exception as e:
         # si tiene l'ultimo elenco valido, segnalato come non aggiornato: mai "tutto aggiornato" per errore
         log_line("scansione", e)
@@ -1096,6 +1203,10 @@ def update_one(item, mode="manual"):
         source = "msstore" if item.get("source") == "msstore" else "winget"
         cmd = [WINGET, "upgrade", "--id", item["token"], "--exact", "--silent", "--include-unknown",
                "--accept-package-agreements", "--source", source] + WG_COMMON
+        if item.get("downgrade"):
+            # ritorno alla versione precedente: upgrade non installa versioni più vecchie, install --force sì
+            cmd = [WINGET, "install", "--id", item["token"], "--exact", "--silent", "--force",
+                   "--accept-package-agreements", "--source", source] + WG_COMMON
         if source == "winget" and item.get("latest") and vparts(item["latest"]):
             cmd += ["--version", item["latest"]]
         on_line = winget_progress(jid)
@@ -1150,10 +1261,52 @@ def update_one(item, mode="manual"):
                                             key=lambda u: u["name"].lower())
         try:
             add_history({"name": item["name"], "from": item.get("installed"), "to": item.get("latest"),
-                         "observed": observed, "result": status, "mode": mode, "exit_code": rc,
+                         "observed": observed, "mode": mode, "exit_code": rc,
+                         "result": "restored" if item.get("downgrade") and status == "done" else status,
+                         "token": item.get("token"), "source": item.get("source"),
                          "log": redact("\n".join(lines)[-12000:])})
         except Exception:
             pass
+
+
+def can_rollback(h):
+    """Si può tornare indietro da un aggiornamento riuscito di un pacchetto della sorgente winget, che
+    conserva le versioni precedenti (il Microsoft Store no)."""
+    return (h.get("result") in ("done", "unverified") and bool(h.get("token")) and h.get("source") != "msstore"
+            and bool(h.get("from")) and bool(vparts(h["from"])) and h.get("mode") != "demo" or
+            (DEMO and h.get("result") == "done" and bool(h.get("token"))))
+
+
+def rollback_target(at):
+    return next((h for h in load_history() if h.get("at") == at and can_rollback(h)), None)
+
+
+def do_rollback(entry):
+    item = {"id": "rollback:" + entry["token"], "kind": "winget", "token": entry["token"], "name": entry["name"],
+            "installed": entry.get("to"), "latest": entry["from"], "source": "winget", "downgrade": True,
+            "location": (arp_for(entry["name"]) or {}).get("location", "") if not DEMO else ""}
+    with lock:
+        state["restore"] = {"id": item["id"], "status": "running", "log": ""}
+        state["jobs"][item["id"]] = {"status": "running", "log": "", "phase": "prepare", "pct": 0}
+    status = "error"
+    try:
+        if DEMO:
+            time.sleep(2)
+            add_history({"name": item["name"], "from": item["installed"], "to": item["latest"], "result": "restored",
+                         "mode": "manual", "token": item["token"], "source": "winget"})
+            status = "done"
+        else:
+            update_one(item, "manual")
+            with lock:
+                status = state["jobs"][item["id"]]["status"]
+    except Exception as e:
+        log_line("ripristino", e)
+    finally:
+        with lock:
+            job = state["jobs"].pop(item["id"], {})
+            state["restore"] = {"id": item["id"], "status": "done" if status == "done" else "error",
+                                "log": job.get("log") or ""}
+            state["running"] = False
 
 
 def app_running(name):
@@ -1596,6 +1749,7 @@ class Handler(BaseHTTPRequestHandler):
         available, method = self_update_available(), install_method()
         history = load_history()
         settings = load_settings()
+        excluded = load_excluded()
         with lock:
             return {
                 "scanning": state["scanning"], "scanned_at": state["scanned_at"],
@@ -1605,15 +1759,23 @@ class Handler(BaseHTTPRequestHandler):
                 "version": VERSION, "lang": LANG, "demo": DEMO, "platform": "windows",
                 "repo": REPO, "admin": is_admin() or DEMO,
                 "self": {**state["self"], "available": available, "method": method},
-                "excluded": load_excluded(), "unchecked": state["unchecked"], "macos": state["macos"],
+                "excluded": excluded, "unchecked": state["unchecked"], "macos": state["macos"],
                 "settings": {**settings, "login": _task["login"], "notifier": True},
                 "auto_wait": state.get("auto_wait"), "next_auto": next_auto_attempt(settings),
                 "admin_task": _task["exists"],
                 "password": is_admin() or DEMO,
                 "scan_warnings": state["scan_warnings"], "stale": state["stale"],
                 "stopping": state["stop"], "quitting": state["quit_after"] or state.get("quitting", False),
-                "history": history,
+                "history": history, "restore": state.get("restore"),
+                "rollbackable": [h["at"] for h in history if can_rollback(h)],
+                "pending_count": len([i for i in state["items"] if not i.get("updated") and not i.get("moved")
+                                      and i.get("key") not in excluded and not active_snooze(i, settings)]),
             }
+
+    def token_ok(self):
+        if DEMO:
+            return True   # la demo non tocca il sistema
+        return secrets.compare_digest((self.headers.get("X-Agg-Token") or "").encode(), TOKEN.encode())
 
     def host_ok(self):
         return self.headers.get("Host") in (f"{HOST}:{PORT}", f"localhost:{PORT}")
@@ -1637,6 +1799,8 @@ class Handler(BaseHTTPRequestHandler):
         if u.path == "/favicon.ico":
             with open(os.path.join(RES, "assets", "app.ico"), "rb") as f:
                 return self.send(200, f.read(), "image/x-icon")
+        if u.path.startswith("/api/") and u.path != "/api/icon" and not self.token_ok():
+            return self.send(401, {"error": "token"})
         if u.path == "/api/state":
             return self.send(200, self.snapshot())
         if u.path == "/api/diagnostics":
@@ -1671,7 +1835,20 @@ class Handler(BaseHTTPRequestHandler):
             return self.send(400, {"error": "invalid json"})
         if not isinstance(body, dict):
             return self.send(400, {"error": "expected an object"})
+        if not self.token_ok():
+            return self.send(401, {"error": "token"})
         u = urlparse(self.path)
+        if u.path == "/api/rollback":
+            at = body.get("at")
+            entry = rollback_target(at) if isinstance(at, (int, float)) else None
+            if not entry:
+                return self.send(404, {"error": "not found"})
+            with lock:
+                if state["running"] or state["scanning"]:
+                    return self.send(409, {"error": t("busy")})
+                state["running"] = True
+            threading.Thread(target=do_rollback, args=(entry,), daemon=True).start()
+            return self.send(200, self.snapshot())
         if u.path == "/api/scan":
             with lock:
                 if not state["scanning"] and not state["running"]:
@@ -1864,7 +2041,8 @@ def main():
         set_login(flags[0] != "--task-nologin")
         # il server non elevato occupa ancora la porta: gli si chiede di chiudersi
         try:
-            urllib.request.urlopen(urllib.request.Request(f"{PAGE_URL}/api/quit", data=b"{}", method="POST"), timeout=3)
+            urllib.request.urlopen(urllib.request.Request(f"{PAGE_URL}/api/quit", data=b"{}", method="POST",
+                                                          headers={"X-Agg-Token": TOKEN}), timeout=3)
         except Exception:
             pass
         os.environ["AGG_RESTARTED"] = "1"

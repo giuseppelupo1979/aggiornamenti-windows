@@ -2,6 +2,23 @@
 
 Tutte le modifiche rilevanti al progetto. Le versioni seguono il [versionamento semantico](https://semver.org/lang/it/).
 
+## [0.5.0] - 2026-11-10
+
+### Sicurezza
+- **Codice di accesso ai comandi.** Il server, che di solito gira con i privilegi di amministratore, accetta comandi solo con un codice casuale salvato nella cartella dell'utente (`%LOCALAPPDATA%\AggiornamentiWin\token`). Lo passano alla finestra Aggiornamenti stesso, l'icona vicino all'orologio e le notifiche; la pagina lo conserva e lo toglie dalla barra degli indirizzi. Prima un sito o un programma qualsiasi che conoscesse la porta poteva far installare software come amministratore. Limite dichiarato: un programma che gira già con il tuo utente può leggere il codice.
+
+### Aggiunto
+- **Novità** sotto ogni aggiornamento: note di versione, link alle note o sito del programma, letti dal manifest pubblico del catalogo winget (indipendente dalla lingua di Windows), in sottofondo dopo ogni controllo. Per il Microsoft Store, la pagina del prodotto.
+- **Torna alla versione precedente** dallo Storico: reinstalla con `winget install --version … --force` la versione di prima, chiudendo il programma con le stesse regole degli aggiornamenti. Solo sorgente winget e solo se winget conserva ancora quella versione.
+- Installazione silenziosa `Aggiornamenti.exe --install` e `tools/winget_manifest.py`, che prepara il manifest per il catalogo winget a partire dagli SHA-256 della Release. L'invio a microsoft/winget-pkgs non è ancora stato fatto.
+
+### Corretto
+- Lo storico resta aperto durante il cambio dei filtri (correzione già nel repository dopo la 0.4.0, ora pubblicata).
+
+### Verifica
+- 61 test automatici (codice di accesso, lettura dei manifest, comando di ritorno alla versione precedente) e prova della demo nel browser: novità, ritorno alla versione precedente simulato, pagina bloccata senza codice.
+- **Non provato su Windows reale:** la VM era spenta. Restano da verificare il codice di accesso con la finestra Edge, l'installazione silenziosa e un ritorno alla versione precedente con winget.
+
 ## [0.4.0] - 2026-10-11
 
 ### Aggiunto

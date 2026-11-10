@@ -47,7 +47,7 @@ def open_window():
     if server.FROZEN and os.path.exists(exe):
         subprocess.Popen(["explorer.exe", exe], creationflags=NO_WINDOW)
     else:
-        os.startfile(server.PAGE_URL)
+        os.startfile(server.page_url())
 
 
 def check_now():

@@ -430,7 +430,10 @@ Object.assign(I18N.it, {
   restart:"Riavvio necessario", restart_before:"Riavvia prima di riprovare", unverifiedResult:"Da verificare", deferred:"In attesa delle condizioni",
   allApps:"Tutte le app", allResults:"Tutti gli esiti", exportReport:"Esporta diagnostica", reportHint:"Il rapporto include le app nello storico. Percorsi utente, email, URL e credenziali riconoscibili vengono oscurati: controllalo prima di condividerlo.",
   noHistory:"Nessun aggiornamento corrisponde ai filtri.", detected:"Versione rilevata", target:"Versione richiesta", exitCode:"Codice di uscita", schedule:"Modalità", pendingReview:"Alcuni aggiornamenti richiedono una verifica o un riavvio.",
-  noEligible:"Nessun aggiornamento da selezionare. Controlla anche le app rimandate ed escluse."
+  noEligible:"Nessun aggiornamento da selezionare. Controlla anche le app rimandate ed escluse.",
+  authTitle:"Apri Aggiornamenti dal menu Start", authText:"Per sicurezza questa pagina accetta comandi solo se aperta da Aggiornamenti: dal menu Start, dal collegamento sul Desktop, dall'icona vicino all'orologio o da una notifica.",
+  notes:"Novità", site:"Sito", store:"Microsoft Store", rollback:v => `Torna alla ${v}`, rollbackConfirm:(n, v) => `Reinstallare ${n} ${v}? Il programma verrà chiuso se è aperto. Al prossimo controllo la versione nuova verrà riproposta: escludilo o rimandalo se vuoi restare alla ${v}.`,
+  restoring:"Reinstallazione della versione precedente…", restoreFailed:"Ritorno alla versione precedente non riuscito. ", restoredRes:"versione precedente"
 });
 Object.assign(I18N.en, {
   onlyAC:"Automatically update only on AC power", avoidMetered:"Avoid automatic updates on metered connections",
@@ -441,10 +444,13 @@ Object.assign(I18N.en, {
   restart:"Restart required",restart_before:"Restart before retrying",unverifiedResult:"Needs verification",deferred:"Waiting for conditions",
   allApps:"All apps",allResults:"All results",exportReport:"Export diagnostics",reportHint:"The report includes apps in your history. Recognizable user paths, emails, URLs and credentials are redacted: review it before sharing.",
   noHistory:"No updates match these filters.",detected:"Detected version",target:"Requested version",exitCode:"Exit code",schedule:"Mode",pendingReview:"Some updates need verification or a restart.",
-  noEligible:"No updates to select. Check postponed and excluded apps too."
+  noEligible:"No updates to select. Check postponed and excluded apps too.",
+  authTitle:"Open Aggiornamenti from the Start menu", authText:"For safety this page only accepts commands when opened by Aggiornamenti: from the Start menu, the Desktop shortcut, the icon near the clock or a notification.",
+  notes:"What's new", site:"Website", store:"Microsoft Store", rollback:v => `Go back to ${v}`, rollbackConfirm:(n, v) => `Reinstall ${n} ${v}? The program will be closed if open. The next check will offer the new version again: exclude or postpone it to stay on ${v}.`,
+  restoring:"Reinstalling the previous version…", restoreFailed:"Going back to the previous version failed. ", restoredRes:"previous version"
 });
 for (const l of Object.values(I18N)) {
-  Object.assign(l.res,{restart:l.restart,restart_before:l.restart_before,unverified:l.unverifiedResult,deferred:l.deferred});
+  Object.assign(l.res,{restored:l.restoredRes,restart:l.restart,restart_before:l.restart_before,unverified:l.unverifiedResult,deferred:l.deferred});
   l.phases.verify_install = l === I18N.it ? "Verifica versione installata" : "Checking installed version";
 }
 const forced = new URLSearchParams(location.search).get("lang");
@@ -463,10 +469,26 @@ function applyStatic() {
 }
 const locale = () => lang === "it" ? "it-IT" : "en-US";
 
+// codice di accesso: arriva nell'indirizzo (#t=...) da chi apre la finestra (Aggiornamenti, icona,
+// notifiche), resta in questo profilo del browser e si toglie subito dalla barra e dalla cronologia
+let token = "";
+try { token = localStorage.getItem("agg-token") || ""; } catch {}
+{
+  const m = location.hash.match(/(?:^#|&)t=([\w-]+)/);
+  if (m) {
+    token = m[1];
+    try { localStorage.setItem("agg-token", token); } catch {}
+    history.replaceState(null, "", location.pathname + location.search);
+  }
+}
+let needToken = false;
 async function api(path, body) {
-  const r = await fetch(path, body === undefined ? {} : {
-    method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body)
+  const headers = { "X-Agg-Token": token };
+  const r = await fetch(path, body === undefined ? { headers } : {
+    method: "POST", headers: { ...headers, "Content-Type": "application/json" }, body: JSON.stringify(body)
   });
+  if (r.status === 401) { needToken = true; throw new Error("token"); }
+  needToken = false;
   const j = await r.json().catch(() => ({}));
   if (!r.ok) throw new Error(j.error || r.statusText);
   return j;
@@ -556,6 +578,15 @@ function iconHtml(path, kind, name) {
     : `<div class="icon term">${esc((name || "?").trim().charAt(0).toUpperCase())}</div>`;
 }
 
+const openNotes = new Set();
+function notesHtml(i) {
+  const n = i.notes;
+  if (!n) return "";
+  if (n.text) return ` <a class="details" data-notes="${esc(i.id)}" href="#">${L.notes}</a>`;
+  if (n.url && /^https:\/\//.test(n.url)) return ` <a class="details" href="${esc(n.url)}" target="_blank" rel="noopener">${L[n.kind] || L.notes}</a>`;
+  return "";
+}
+
 function rowHtml(i, busy, ex) {
   const job = data.jobs[i.id];
   const st = i.updated ? "done" : i.moved ? "moved" : job?.status;
@@ -582,7 +613,8 @@ function rowHtml(i, busy, ex) {
       ${iconHtml(i.path, i.kind, i.name)}
       <div style="min-width:0">
         <div class="name">${esc(i.name)}${i.major ? `<span class="tag">${L.major}</span>` : ""}${i.verified === false ? `<span class="tag">${L.unverified}</span>` : ""}</div>
-        <div class="meta">${esc(i.installed)}<span class="arrow">→</span><span class="new-version">${esc(i.latest)}</span><span class="source">${esc(L.sources[i.source] || i.source)}</span></div>
+        <div class="meta">${esc(i.installed)}<span class="arrow">→</span><span class="new-version">${esc(i.latest)}</span><span class="source">${esc(L.sources[i.source] || i.source)}</span>${notesHtml(i)}</div>
+        ${openNotes.has(i.id) && i.notes?.text ? `<pre class="log notes">${esc(i.notes.text)}</pre>` : ""}
       </div>
       <div class="status ${st || ""}">${status}<div class="row-actions">${postpone}${act}</div></div>
       ${st === "running" || st === "queued" ? jobProgress(i.id, job) : ""}
@@ -700,6 +732,8 @@ function render() {
     : data.cleaning ? `<span class="spin"></span>${L.cleaning}`
     : data.self && data.self.status === "updating" ? `<span class="spin"></span>${L.selfUpdating(esc(data.self.available || ""))}`
     : data.self && data.self.status === "restarting" ? `<span class="spin"></span>${L.selfRestarting}`
+    : data.restore && data.restore.status === "running" ? `<span class="spin"></span>${L.restoring}`
+    : data.restore && data.restore.status === "error" && !data.running ? `<span style="color:var(--err)">${esc(L.restoreFailed + (data.restore.log || "").trim().split("\n").pop())}</span>`
     : data.stopping ? `<span class="spin"></span>${L.stopping}`
     : data.running ? L.updating
     : data.scan_error ? esc(L.staleErr(data.scan_error, data.scanned_at ? ago(data.scanned_at) : ""))
@@ -725,9 +759,9 @@ function render() {
   const lh = $("#loginhint");
   if (data.settings && !data.settings.login && !(data.settings.daily_check || data.settings.auto_update)) { lh.textContent = L.loginOffHint; lh.className = "hint"; }
 
-  const sig = JSON.stringify([lang, data.stale, (data.scan_warnings || []).join(), JSON.stringify(data.history || []), historyApp, historyResult, data.self && [data.self.available, data.self.status, selfLogOpen], busy, data.scanning, [...selected], [...openLogs], Object.keys(excluded()), (data.unchecked || []).length, (data.macos || []).join(), items.map(i => {
+  const sig = JSON.stringify([lang, (data.rollbackable || []).join(), data.restore && data.restore.status, data.stale, (data.scan_warnings || []).join(), JSON.stringify(data.history || []), historyApp, historyResult, data.self && [data.self.available, data.self.status, selfLogOpen], busy, data.scanning, [...selected], [...openLogs], Object.keys(excluded()), (data.unchecked || []).length, (data.macos || []).join(), items.map(i => {
     const j = data.jobs[i.id];
-    return [i.id, i.updated, i.snooze, j?.status, openLogs.has(i.id) ? j?.log : ""];
+    return [i.id, i.updated, i.snooze, j?.status, openLogs.has(i.id) ? j?.log : "", openNotes.has(i.id), !!i.notes];
   })]);
   if (sig === lastSig) return patchProgress();
   lastSig = sig;
@@ -799,7 +833,7 @@ function render() {
   const filtered = hist.filter(h => (!historyApp || h.name === historyApp) && (!historyResult || h.result === historyResult));
   if (!filtered.length) html += `<li>${L.noHistory}</li>`;
   for (const h of filtered) html += `<li><details data-history="${esc(h.at + ':' + h.name)}" ${historyDetails.has(h.at + ':' + h.name) ? "open" : ""}><summary><span>${esc(h.name)}</span><span class="history-result ${esc(h.result)}">${esc(L.res[h.result] || h.result)} · ${ago(h.at)}</span></summary>
-    <p>${esc(h.from || "?")} → ${esc(h.to || "?")} · ${L.detected}: ${esc(h.observed || "?")}<br>${L.exitCode}: ${esc(h.exit_code ?? "—")} · ${L.schedule}: ${esc(h.mode || "—")}</p>${h.log ? `<pre class="log">${esc(h.log)}</pre>` : ""}</details></li>`;
+    <p>${esc(h.from || "?")} → ${esc(h.to || "?")} · ${L.detected}: ${esc(h.observed || "?")}${(data.rollbackable || []).includes(h.at) && !busy ? `<br><button type="button" class="mini" data-rollback="${h.at}" data-name="${esc(h.name)}" data-from="${esc(h.from || "")}">${esc(L.rollback(h.from || ""))}</button>` : ""}<br>${L.exitCode}: ${esc(h.exit_code ?? "—")} · ${L.schedule}: ${esc(h.mode || "—")}</p>${h.log ? `<pre class="log">${esc(h.log)}</pre>` : ""}</details></li>`;
   html += "</ul></details>";
   const focus = document.activeElement;
   const focusId = focus?.id;
@@ -836,6 +870,13 @@ $("#list").addEventListener("click", async e => {
     } catch (err) { alert(L.actionFailed + err.message); }
     return;
   }
+  const rb = e.target.closest("[data-rollback]");
+  if (rb) {
+    if (!confirm(L.rollbackConfirm(rb.dataset.name, rb.dataset.from))) return;
+    return act("/api/rollback", { at: Number(rb.dataset.rollback) });
+  }
+  const nt = e.target.closest("[data-notes]");
+  if (nt) { e.preventDefault(); openNotes.has(nt.dataset.notes) ? openNotes.delete(nt.dataset.notes) : openNotes.add(nt.dataset.notes); return render(); }
   if (e.target.closest("select, .hist")) return;
   const resume = e.target.closest("[data-resume]");
   if (resume) return act("/api/snooze", {id:resume.dataset.resume, choice:"resume"});
@@ -920,15 +961,16 @@ async function poll() {
     // il programma non risponde più (chiuso con Esci o da Gestione attività): mai una finestra che
     // sembra funzionare con dati vecchi
     offline++;
-    if (offline >= 2 && !(data.self && data.self.status === "restarting")) showGone();
+    if (needToken) showGone(true);
+    else if (offline >= 2 && !(data.self && data.self.status === "restarting")) showGone();
   }
   const selfBusy = data.self && (data.self.status === "updating" || data.self.status === "restarting");
   setTimeout(poll, data.running || selfBusy ? 500 : data.scanning ? 1000 : 3000);
 }
-function showGone() {
+function showGone(auth) {
   if ($("#gone").innerHTML) return;
   $("#gone").innerHTML = `<div class="gone" role="alertdialog" aria-labelledby="goneT"><div class="card">
-    <h2 id="goneT">${L.goneTitle}</h2><p>${L.goneText}</p>
+    <h2 id="goneT">${auth ? L.authTitle : L.goneTitle}</h2><p>${auth ? L.authText : L.goneText}</p>
     <button type="button" class="primary" id="goneClose">${L.goneClose}</button></div></div>`;
   $("#goneClose").onclick = () => window.close();
   $("#goneClose").focus();

@@ -42,6 +42,8 @@ Hai saltato la scelta o vuoi cambiarla? In fondo alla finestra trovi **Privilegi
 - **Clicca sui programmi** da aggiornare, oppure su **Seleziona tutto**, poi premi **Aggiorna**. Una barra mostra cosa sta succedendo per ogni programma. Durante il giro il pulsante diventa **Interrompi**: finisce l'installazione in corso e lascia le altre per dopo.
 - Per i pacchetti della sorgente winget viene richiesta **la versione che vedi** nell’elenco. Il Microsoft Store gestisce la versione disponibile. Dopo l’installazione si ricontrolla la versione: se non coincide o non è leggibile compare **Da verificare**, anziché un successo non confermato. **Riavvio necessario** indica che devi riavviare Windows e poi premere Controlla; il programma non riavvia il PC da solo.
 - **Rimanda…** permette di aspettare 24 ore, una settimana o saltare solo la versione proposta. Le app passano in **Rimandate** e non vengono aggiornate finché il rinvio è attivo; **Riprendi** lo annulla.
+- **Novità**, sotto il numero di versione, mostra cosa cambia: le note pubblicate dal produttore nel catalogo winget, oppure un link alle note o al sito del programma.
+- Un aggiornamento ti ha dato problemi? Apri la voce nello **Storico** e premi **Torna alla …**: Aggiornamenti reinstalla la versione di prima con winget. Funziona per i programmi della sorgente winget (non per il Microsoft Store) e solo se winget ha ancora quella versione; al controllo successivo la versione nuova viene riproposta, quindi rimandala o escludila se vuoi restare indietro.
 - I programmi segnati **versione maggiore** (un grande salto di versione) non vengono selezionati da soli: aggiornali solo se sai che ti serve.
 - **Escludi**, accanto a ogni programma, lo toglie dall'elenco **per sempre**: non viene più proposto né aggiornato di notte. Lo ritrovi in fondo, nella sezione *Escluse*, dove **Includi** lo rimette in elenco.
 - In **Controllo automatico** puoi farti avvisare ogni giorno con una notifica, oppure lasciare che aggiorni da solo di notte (tra le 3 e le 8: se il PC è spento, si riprova la notte dopo). Puoi anche spegnere tutto: con **Avvia all'accensione** disattivato Aggiornamenti funziona **solo quando lo apri tu**, e con *Esci* si chiude del tutto.
@@ -57,7 +59,7 @@ Hai saltato la scelta o vuoi cambiarla? In fondo alla finestra trovi **Privilegi
 ## Domande frequenti
 
 **È sicuro?**
-Il programma usa **winget**, lo strumento ufficiale di Microsoft già incluso in Windows 11, che scarica ogni aggiornamento dal sito del produttore e ne verifica l'integrità. Il codice di Aggiornamenti è pubblico in questa pagina e il file che scarichi viene costruito direttamente da GitHub a partire da questo codice.
+Il programma usa **winget**, lo strumento ufficiale di Microsoft già incluso in Windows 11, che scarica ogni aggiornamento dal sito del produttore e ne verifica l'integrità. Il codice di Aggiornamenti è pubblico in questa pagina e il file che scarichi viene costruito direttamente da GitHub a partire da questo codice. La pagina accetta comandi solo con un codice segreto che Aggiornamenti le passa quando la apre: un sito web o un altro programma che conosce solo l'indirizzo non può farle installare nulla.
 
 **Perché Windows mostra "PC protetto da Windows"?**
 Perché il programma è nuovo e non è firmato con un certificato a pagamento. Non significa che sia pericoloso: Windows avvisa per ogni programma che non conosce ancora. L'avviso diminuisce man mano che il programma viene scaricato da più persone.
@@ -91,6 +93,8 @@ Se winget o Windows Update non rispondono, Aggiornamenti lo scrive e mostra l'ul
 ## Per chi vuole saperne di più
 
 Aggiornamenti è un piccolo server locale (Python, solo libreria standard) che usa winget per trovare e installare gli aggiornamenti, con un'interfaccia web mostrata in una finestra di Microsoft Edge in modalità applicazione. Ascolta solo su `127.0.0.1` e rifiuta richieste da altri siti. Gli exe per x64 e ARM64 sono costruiti da [GitHub Actions](.github/workflows/build.yml) a ogni versione.
+
+**Firma e catalogo winget.** L'avviso "PC protetto da Windows" sparisce solo con un exe firmato. Per i progetti open source esiste la firma gratuita di [SignPath Foundation](https://signpath.org/), che richiede una domanda del titolare del progetto; dopo l'approvazione basta aggiungere il passaggio di firma al workflow. In alternativa, o in aggiunta, Aggiornamenti si può pubblicare nel catalogo winget (`winget install GiuseppeLupo.Aggiornamenti`): `python tools/winget_manifest.py <versione>` prepara il manifest in `winget/`, da inviare con una pull request a [microsoft/winget-pkgs](https://github.com/microsoft/winget-pkgs). L'installazione silenziosa che winget usa è `Aggiornamenti.exe --install`.
 
 Avvio dal sorgente, senza exe:
 

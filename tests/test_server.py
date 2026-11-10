@@ -323,7 +323,7 @@ class NewApi(Base):
     def post(self, path, body):
         handler = object.__new__(s.Handler)
         raw = json.dumps(body).encode()
-        handler.headers = {"Host": f"{s.HOST}:{s.PORT}", "Content-Length": str(len(raw))}
+        handler.headers = {"Host": f"{s.HOST}:{s.PORT}", "Content-Length": str(len(raw)), "X-Agg-Token": s.TOKEN}
         handler.path = path
         handler.rfile = io.BytesIO(raw)
         replies = []
@@ -359,6 +359,78 @@ class NewApi(Base):
         s.state["running"] = True
         self.assertEqual(self.post("/api/snooze", {"id": ITEM["id"], "choice": "day"})[0], 409)
         self.assertIsNone(s.active_snooze(ITEM))
+
+
+class Security(NewApi):
+    def test_command_without_token_is_refused(self):
+        handler = object.__new__(s.Handler)
+        handler.headers = {"Host": f"{s.HOST}:{s.PORT}", "Content-Length": "2"}
+        handler.path, handler.rfile = "/api/update", io.BytesIO(b"{}")
+        replies = []
+        handler.send = lambda code, payload: replies.append((code, payload))
+        handler.do_POST()
+        self.assertEqual(replies[-1][0], 401)
+
+    def test_every_internal_api_call_sends_the_token(self):
+        # ogni chiamata HTTP del programma a sé stesso deve allegare il codice, altrimenti riceve 401
+        import re as _re
+        for name in ("server.py", "app.py", "tray.py"):
+            src = (ROOT / name).read_text(encoding="utf-8")
+            for m in _re.finditer(r"Request\((?:f\"[^\"]*|\S*)/api/[^\n]*(?:\n[^\n]*){0,1}", src):
+                self.assertIn("X-Agg-Token", m.group(0), f"{name}: {m.group(0)[:80]}")
+
+    def test_token_is_stable(self):
+        self.assertEqual(s.load_token(), s.TOKEN)
+        self.assertTrue(s.page_url().endswith("#t=" + s.TOKEN))
+
+
+class Notes(Base):
+    def test_manifest_fields_reads_values_and_blocks(self):
+        f = s.manifest_fields("PackageUrl: https://7-zip.org/\nReleaseNotes: |-\n  - Fix A\n  - Fix B\nReleaseNotesUrl: https://x/rel\n")
+        self.assertEqual((f["PackageUrl"], f["ReleaseNotes"], f["ReleaseNotesUrl"]), ("https://7-zip.org/", "- Fix A\n- Fix B", "https://x/rel"))
+
+    def test_notes_from_manifest_path(self):
+        pages = {}
+
+        def opener(req, timeout=0):
+            url = req.full_url
+            pages[url] = True
+            body = "DefaultLocale: it-IT\n" if url.endswith("/7zip.7zip.yaml") else "ReleaseNotesUrl: https://github.com/ip7z/7zip/releases/tag/25.01\n"
+            return io.BytesIO(body.encode())
+        s._notes_cache.clear()
+        with patch.object(s.urllib.request, "urlopen", side_effect=opener):
+            n = s.winget_notes({"token": "7zip.7zip", "latest": "25.01", "source": "winget"})
+        self.assertEqual(n["url"], "https://github.com/ip7z/7zip/releases/tag/25.01")
+        self.assertIn(f"{s.WINGET_PKGS}/7/7zip/7zip/25.01/7zip.7zip.locale.it-IT.yaml", pages)
+
+    def test_missing_manifest_is_not_an_error(self):
+        s._notes_cache.clear()
+        with patch.object(s.urllib.request, "urlopen", side_effect=OSError("404")):
+            self.assertIsNone(s.winget_notes({"token": "Vendor.App", "latest": "1.1", "source": "winget"}))
+
+
+class Rollback(Base):
+    def test_rollback_reinstalls_previous_version_with_install_force(self):
+        s.add_history({"name": "App", "from": "1.0", "to": "1.1", "result": "done", "mode": "manual",
+                       "token": "Vendor.App", "source": "winget"})
+        entry = s.load_history()[-1]
+        self.assertIs(s.can_rollback(entry), True)
+        s.state["running"] = True
+        with patch.object(s, "running_in", return_value=[]), \
+             patch.object(s, "run_stream", return_value=(0, "")) as run, \
+             patch.object(s, "installed_version", return_value="1.0"):
+            s.do_rollback(entry)
+        cmd = run.call_args.args[0]
+        self.assertEqual(cmd[1], "install")
+        self.assertIn("--force", cmd)
+        self.assertEqual(cmd[cmd.index("--version") + 1], "1.0")
+        self.assertEqual(s.state["restore"]["status"], "done")
+        self.assertFalse(s.state["running"])
+        self.assertEqual(s.load_history()[-1]["result"], "restored")
+
+    def test_store_and_failed_updates_cannot_be_rolled_back(self):
+        self.assertFalse(s.can_rollback({"result": "done", "token": "X", "source": "msstore", "from": "1.0"}))
+        self.assertFalse(s.can_rollback({"result": "error", "token": "X", "source": "winget", "from": "1.0"}))
 
 
 class SelfUpdate(Base):

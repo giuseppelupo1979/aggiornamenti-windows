@@ -59,8 +59,8 @@ def count_processes():
 def quit_running(port):
     """Chiede alla copia in esecuzione di chiudersi. False se sta aggiornando (risponde 409)."""
     try:
-        urllib.request.urlopen(urllib.request.Request(f"http://127.0.0.1:{port}/api/quit", data=b"{}",
-                                                      method="POST"), timeout=3)
+        urllib.request.urlopen(urllib.request.Request(f"http://127.0.0.1:{port}/api/quit", data=b"{}", method="POST",
+                                                      headers={"X-Agg-Token": server.TOKEN}), timeout=3)
         return True
     except urllib.error.HTTPError as e:
         return e.code != 409
@@ -180,6 +180,11 @@ def main():
         return server.main()
     if "--uninstall" in args:
         return uninstall()
+    if "--install" in args:
+        # installazione silenziosa (usata dal catalogo winget): copia, collegamenti, nessuna finestra
+        if getattr(sys, "frozen", False):
+            install()
+        return
     demo = "--demo" in args
     frozen = getattr(sys, "frozen", False)
 
@@ -211,7 +216,8 @@ def main():
             # piano B: se l'attività non parte (o non c'è) il programma si avvia comunque, senza privilegi
             subprocess.Popen(cmd, creationflags=NO_WINDOW | DETACHED, close_fds=True)
             wait_up(port, 30)
-    open_window(f"http://127.0.0.1:{port}/")
+    # il codice nell'indirizzo abilita i comandi della pagina (la pagina lo toglie subito dalla barra)
+    open_window(f"http://127.0.0.1:{port}/" + ("" if demo else f"#t={server.TOKEN}"))
 
 
 def message(text):
