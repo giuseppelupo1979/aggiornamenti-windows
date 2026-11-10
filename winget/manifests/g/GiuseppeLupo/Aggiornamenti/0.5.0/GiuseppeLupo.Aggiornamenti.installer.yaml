@@ -1,0 +1,22 @@
+# yaml-language-server: $schema=https://aka.ms/winget-manifest.installer.1.9.0.schema.json
+
+PackageIdentifier: GiuseppeLupo.Aggiornamenti
+PackageVersion: 0.5.0
+InstallerType: exe
+Scope: user
+InstallModes:
+- silent
+InstallerSwitches:
+  Silent: --install
+  SilentWithProgress: --install
+UpgradeBehavior: install
+MinimumOSVersion: 10.0.17763.0
+Installers:
+- Architecture: x64
+  InstallerUrl: https://github.com/giuseppelupo1979/aggiornamenti-windows/releases/download/v0.5.0/Aggiornamenti-x64.exe
+  InstallerSha256: 5DBC571DA98201EAF486D70255625250AC804104E06FCFB01FA61542AD16B92E
+- Architecture: arm64
+  InstallerUrl: https://github.com/giuseppelupo1979/aggiornamenti-windows/releases/download/v0.5.0/Aggiornamenti-arm64.exe
+  InstallerSha256: 902F64AE86E319036DEF6C7A02D538D8F20B78D1F4C370E03C1766569B139CDF
+ManifestType: installer
+ManifestVersion: 1.9.0
