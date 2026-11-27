@@ -498,3 +498,79 @@ class Api(Base):
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)
+
+
+class PreviousVersions(NewApi):
+    def setUp(self):
+        super().setUp()
+        self.temp = Path(tempfile.mkdtemp(dir=SANDBOX.name))
+        self.env = patch.dict(os.environ, {"TEMP": str(self.temp)})
+        self.env.start()
+        self.addCleanup(self.env.stop)
+
+    def test_only_safe_leftovers_are_listed_and_cleared(self):
+        (self.temp / "WinGet" / "Vendor.App.1.0").mkdir(parents=True)
+        (self.temp / "WinGet" / "Vendor.App.1.0" / "setup.exe").write_bytes(b"x" * 5000)
+        ours = self.temp / "_MEI1234"                       # resto di una versione vecchia di Aggiornamenti.exe
+        (ours / "assets").mkdir(parents=True)
+        (ours / "index.html").write_text("<html>")
+        (ours / "assets" / "app.ico").write_bytes(b"i" * 1000)
+        old = s.time.time() - 3600
+        os.utime(ours, (old, old))
+        other = self.temp / "_MEI9999"                      # di un altro programma: non si tocca
+        other.mkdir()
+        (other / "base_library.zip").write_bytes(b"z")
+        current = self.temp / "_MEI5555"                    # quella in uso: non si tocca
+        (current / "assets").mkdir(parents=True)
+        (current / "index.html").write_text("<html>")
+        (current / "assets" / "app.ico").write_bytes(b"i")
+        unrelated = self.temp / "documento.txt"
+        unrelated.write_text("mio")
+        with patch.object(s, "RES", str(current)):
+            listed = {Path(p).name for p in s.previous_leftovers()}
+            self.assertEqual(listed, {"WinGet", "_MEI1234"})
+            self.assertGreaterEqual(s.previous_size(fresh=True), 6000)
+            self.assertGreaterEqual(s.clear_previous(), 6000)
+            self.assertEqual(s.previous_size(), 0)
+        self.assertFalse(ours.exists())
+        self.assertFalse((self.temp / "WinGet").exists())
+        self.assertTrue(other.exists() and current.exists() and unrelated.exists())
+
+    def test_mei_folder_in_use_or_just_extracted_is_never_touched(self):
+        busy, fresh = self.temp / "_MEI1234", self.temp / "_MEI7777"
+        for d in (busy, fresh):
+            d.mkdir()
+            (d / "index.html").write_text("<html>")
+        old = s.time.time() - 3600
+        os.utime(busy, (old, old))
+        with patch.object(s, "mei_in_use", side_effect=lambda d: Path(d).name == "_MEI1234"):
+            self.assertNotIn(str(busy), s.previous_leftovers())
+            s.clear_previous()
+        self.assertTrue((busy / "index.html").exists())     # DLL caricato da una copia ancora aperta
+        self.assertTrue((fresh / "index.html").exists())    # estratta da meno di 10 minuti
+
+    def test_clear_refused_while_busy_or_restoring(self):
+        s.state["running"] = True
+        self.assertEqual(self.post("/api/previous/clear", {})[0], 409)
+        s.state["running"] = False
+        s.state["restore"] = {"id": "x", "status": "running", "log": ""}
+        self.assertEqual(self.post("/api/previous/clear", {})[0], 409)
+
+    def test_clear_needs_token(self):
+        handler = object.__new__(s.Handler)
+        handler.headers = {"Host": f"{s.HOST}:{s.PORT}", "Content-Length": "2"}
+        handler.path, handler.rfile = "/api/previous/clear", io.BytesIO(b"{}")
+        replies = []
+        handler.send = lambda code, payload: replies.append((code, payload))
+        handler.do_POST()
+        self.assertEqual(replies[-1][0], 401)
+
+    def test_clear_job_frees_program_and_records_result(self):
+        with patch.object(s, "clear_previous", return_value=42):
+            self.assertEqual(self.post("/api/previous/clear", {})[0], 200)
+            for _ in range(100):
+                if not s.state["running"]:
+                    break
+                s.time.sleep(0.02)
+        self.assertFalse(s.state["running"] or s.state["cleaning"])
+        self.assertEqual(s.load_settings()["last_previous_clear"]["freed"], 42)

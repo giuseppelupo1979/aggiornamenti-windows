@@ -271,8 +271,9 @@
         <label class="opt"><input type="checkbox" id="s_login"> <span data-t="login"></span></label>
         <p class="hint" id="loginhint"></p>
         <p class="hint" id="lastauto"></p>
-        <div class="settings-actions"><button type="button" id="s_test" data-t="testNotif"></button> <button type="button" id="s_clean" data-t="cleanNow"></button></div>
+        <div class="settings-actions"><button type="button" id="s_test" data-t="testNotif"></button> <button type="button" id="s_clean" data-t="cleanNow"></button> <button type="button" id="s_clear_prev"></button></div>
         <p class="hint" id="lastclean"></p>
+        <p class="hint" id="previnfo"></p>
       </div>
     </details>
     <details>
@@ -338,6 +339,9 @@ const I18N = {
     dailyA: "Controlla ogni giorno alle", dailyB: "e avvisami con una notifica", nightly: "Aggiorna da solo ogni notte alle",
     nightlyHint: "Di notte vengono aggiornate solo le app non escluse, senza versioni maggiori né abbinamenti da verificare. Le app aperte non vengono mai chiuse: si rimandano al giro successivo. Se il PC è spento o sospeso, riprova al risveglio solo entro le cinque ore successive all’orario scelto; altrimenti aspetta la notte dopo.",
     login: "Avvia Aggiornamenti all'accesso", testNotif: "Prova una notifica", cleanNow: "Libera spazio ora",
+    clearPrev: x => `Cancella versioni precedenti (${x})`, clearPrevNone: "Nessun resto di versioni precedenti",
+    clearPrevConfirm: x => `Cancellare ${x} di installer già usati e resti di versioni precedenti di Aggiornamenti? I programmi installati non vengono toccati; per tornare a una versione precedente winget la riscarica.`,
+    clearPrevLast: (a, x) => `Versioni precedenti cancellate ${a}, liberati ${x}.`,
     autoOff: "Controllo automatico disattivato", autoNightly: t => `Aggiornamento automatico ogni notte alle ${t}`, autoDaily: t => `Controllo automatico ogni giorno alle ${t}`,
     loginWarn: "Il controllo automatico funziona solo mentre Aggiornamenti è attivo: attiva l'avvio all'accesso perché resti attivo anche dopo un riavvio.",
     cleanInfo: "Dopo ogni giro di aggiornamenti installer e vecchie versioni vengono cancellati.",
@@ -399,6 +403,9 @@ const I18N = {
     dailyA: "Check every day at", dailyB: "and notify me", nightly: "Update automatically every night at",
     nightlyHint: "At night only apps that are not excluded are updated, skipping major versions and unverified matches. Open apps are never quit: they wait for the next run. If the PC is off or asleep, updates resume only within five hours of the scheduled time; otherwise they wait until the next night.",
     login: "Start Aggiornamenti at login (with administrator rights)", testNotif: "Send a test notification", cleanNow: "Free up space now",
+    clearPrev: x => `Delete previous versions (${x})`, clearPrevNone: "No previous-version leftovers",
+    clearPrevConfirm: x => `Delete ${x} of used installers and leftovers of previous Aggiornamenti versions? Installed programs are not touched; to go back to a previous version winget downloads it again.`,
+    clearPrevLast: (a, x) => `Previous versions deleted ${a}, ${x} freed.`,
     autoOff: "Automatic check off", autoNightly: t => `Automatic update every night at ${t}`, autoDaily: t => `Automatic check every day at ${t}`,
     loginWarn: "Automatic checks only run while Aggiornamenti is running: turn on start at login so it keeps running after a restart.",
     cleanInfo: "After every round of updates, installers and old versions are deleted.",
@@ -646,6 +653,11 @@ function renderSettings() {
   const lc = st.last_cleanup;
   $("#lastclean").textContent = data.cleaning ? L.cleanRunning : L.cleanInfo + (lc ? " " + L.cleanLast(ago(lc.at), size(lc.freed)) : "");
   $("#s_clean").disabled = data.running || data.scanning || data.cleaning;
+  const cp = $("#s_clear_prev"), prevBytes = data.previous_bytes || 0;
+  cp.textContent = prevBytes ? L.clearPrev(size(prevBytes)) : L.clearPrevNone;
+  cp.disabled = !prevBytes || data.running || data.scanning || data.cleaning;
+  const lp = st.last_previous_clear;
+  $("#previnfo").textContent = lp ? L.clearPrevLast(ago(lp.at), size(lp.freed)) : "";
   const la = st.last_auto;
   $("#lastauto").textContent = la ? L.lastAuto(ago(la.at), la.updated.length)
     + (la.failed.length ? L.lastAutoFailed(la.failed.length, la.failed.join(", ")) : "")
@@ -666,6 +678,11 @@ $("#s_login").onchange = e => saveSettings({ login: e.target.checked });
 $("#s_check_time").onchange = e => e.target.value && saveSettings({ check_time: e.target.value });
 $("#s_auto_time").onchange = e => e.target.value && saveSettings({ auto_time: e.target.value });
 $("#s_clean").onclick = async () => { try { data = await api("/api/cleanup", {}); } catch (e) { alert(e.message); } render(); };
+$("#s_clear_prev").onclick = async () => {
+  if (!data.previous_bytes || !confirm(L.clearPrevConfirm(size(data.previous_bytes)))) return;
+  try { data = await api("/api/previous/clear", {}); } catch (e) { alert(e.message); }
+  render();
+};
 $("#s_test").onclick = async () => { await api("/api/notify-test", {}); };
 
 let selfLogOpen = false;

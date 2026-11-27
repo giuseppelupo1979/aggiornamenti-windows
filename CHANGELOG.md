@@ -2,6 +2,19 @@
 
 Tutte le modifiche rilevanti al progetto. Le versioni seguono il [versionamento semantico](https://semver.org/lang/it/).
 
+## [0.6.0] - 2026-11-27
+
+### Aggiunto
+- **Cancella versioni precedenti.** In *Controllo automatico* un nuovo pulsante mostra quanto spazio occupano i resti delle versioni precedenti e, dopo una conferma, li cancella: gli installer già usati che winget lascia in `%TEMP%\WinGet`, l'exe sostituito dall'auto-aggiornamento e le cartelle `_MEI…` che le versioni vecchie di Aggiornamenti.exe lasciano nella cartella temporanea quando non si chiudono del tutto (circa 20 MB l'una). Sulla macchina di prova erano 184 MB.
+- A differenza del Mac, su Windows Aggiornamenti non conserva copie dei programmi: il ritorno alla versione precedente la riscarica da winget e continua a funzionare dopo la cancellazione. Non vengono mai toccati `C:\Windows\Installer`, `Package Cache` né le cartelle dei programmi, che servono a disinstallarli e ripararli.
+
+### Corretto (prima del rilascio)
+- La prima versione del pulsante riconosceva la cartella `_MEI…` di un Aggiornamenti ancora aperto provando a rinominarla. Sulla VM Windows 11 la rinomina è riuscita anche con il DLL di Python caricato: la cartella in uso sarebbe stata cancellata a metà. Ora si chiede a Windows di cancellare quel DLL e si ritira subito la richiesta: Windows la rifiuta se il DLL è in uso, e la cartella resta. Le cartelle estratte da meno di 10 minuti non si toccano.
+
+### Verifica
+- 72 test automatici (solo resti sicuri, cartelle di altri programmi e quella in uso intatte, rifiuto mentre il programma è occupato, codice di accesso obbligatorio) e prova della demo nel browser.
+- **Provato su Windows 11 reale (VM ARM64):** 183,9 MB liberati, la cartella dell'Aggiornamenti in esecuzione intatta (62 file) e la sua pagina ancora raggiungibile. Il pulsante nella finestra Edge dell'exe compilato non è stato provato: l'exe 0.6.0 lo costruisce GitHub al rilascio.
+
 ## [0.5.0] - 2026-11-10
 
 ### Sicurezza

@@ -28,7 +28,7 @@ import urllib.request
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import urlparse
 
-VERSION = "0.5.0"   # tenere allineata con CHANGELOG.md
+VERSION = "0.6.0"   # tenere allineata con CHANGELOG.md
 # --demo: dati finti, cartelle temporanee, nessuna modifica al sistema (per prove e screenshot)
 DEMO = "--demo" in sys.argv
 HOST = "127.0.0.1"
@@ -308,6 +308,7 @@ DEFAULT_SETTINGS = {
     "daily_check": True, "check_time": "09:00",
     "auto_update": False, "auto_time": "03:00",
     "last_check_day": None, "last_auto_day": None, "last_auto": None, "last_cleanup": None,
+    "last_previous_clear": None,   # {at, freed}: ultima cancellazione dei resti delle versioni precedenti
     "welcomed": False,
     "only_ac": True, "avoid_metered": True, "theme": "system", "snoozed": {},
 }
@@ -1337,6 +1338,90 @@ def dir_size(path):
     return total
 
 
+def previous_leftovers():
+    """Resti delle versioni precedenti che si possono cancellare senza perdere nulla: installer già usati
+    scaricati da winget (il ritorno alla versione precedente li riscarica), l'exe di Aggiornamenti
+    sostituito dall'auto-aggiornamento, cartelle temporanei di aggiornamenti interrotti e cartelle
+    _MEI lasciate da versioni precedenti di Aggiornamenti.exe chiuse male.
+    Mai toccati: C:\\Windows\\Installer, Package Cache e le cartelle dei programmi, che servono a
+    disinstallare e riparare il software installato."""
+    temp = os.environ.get("TEMP") or tempfile.gettempdir()
+    paths = [os.path.join(temp, "WinGet")] + glob.glob(os.path.join(CACHE, "agg-*"))
+    if FROZEN:
+        paths.append(sys.executable + ".old")
+    current = os.path.normcase(os.path.abspath(RES))
+    for d in glob.glob(os.path.join(temp, "_MEI*")):
+        # solo cartelle di Aggiornamenti.exe (contengono la sua pagina), mai quella in uso da questo
+        # processo né quelle di altre copie ancora aperte (icona nella barra, finestra elevata)
+        if os.path.normcase(os.path.abspath(d)) != current and os.path.isfile(os.path.join(d, "index.html")) \
+                and time.time() - os.path.getmtime(d) > 600 and not mei_in_use(d):   # 10 minuti: estrazione finita
+            paths.append(d)
+    return [p for p in paths if os.path.exists(p)]
+
+
+def mei_in_use(folder):
+    """Vero se un processo vivo ha caricato il python3*.dll della cartella. Rinominare la cartella non
+    basta a capirlo (Windows lo permette anche con il DLL caricato, provato sulla VM): si chiede di
+    cancellare il DLL e si ritira subito la richiesta. Windows la rifiuta se il DLL è in uso."""
+    dlls = glob.glob(os.path.join(folder, "python3*.dll"))
+    if os.name != "nt" or not dlls:
+        return False
+    from ctypes import wintypes
+    k = ctypes.WinDLL("kernel32", use_last_error=True)
+    k.CreateFileW.restype = wintypes.HANDLE
+    k.CreateFileW.argtypes = [wintypes.LPCWSTR, wintypes.DWORD, wintypes.DWORD, wintypes.LPVOID,
+                              wintypes.DWORD, wintypes.DWORD, wintypes.HANDLE]
+    k.SetFileInformationByHandle.argtypes = [wintypes.HANDLE, ctypes.c_int, ctypes.c_void_p, wintypes.DWORD]
+    for dll in dlls:
+        h = k.CreateFileW(dll, 0x00010000, 7, None, 3, 0, None)   # DELETE, condivisione completa, file esistente
+        if h in (None, wintypes.HANDLE(-1).value):
+            return True                                            # nel dubbio la cartella resta
+        try:
+            flag = ctypes.c_ubyte(1)
+            if not k.SetFileInformationByHandle(h, 4, ctypes.byref(flag), 1):   # FileDispositionInfo
+                return True
+            flag = ctypes.c_ubyte(0)
+            if not k.SetFileInformationByHandle(h, 4, ctypes.byref(flag), 1):
+                return True
+        finally:
+            k.CloseHandle(h)
+    return False
+
+
+_previous_cache = {"at": 0, "bytes": 0}
+
+
+def previous_size(fresh=False):
+    """Spazio occupato dai resti delle versioni precedenti; misurato al massimo una volta al minuto."""
+    if DEMO:
+        return 0 if load_settings().get("last_previous_clear") else int(0.6 * 1024 ** 3)
+    if fresh or time.time() - _previous_cache["at"] > 60:
+        _previous_cache.update(at=time.time(), bytes=sum(dir_size(p) for p in previous_leftovers()))
+    return _previous_cache["bytes"]
+
+
+def clear_previous():
+    """Cancella i resti delle versioni precedenti. Restituisce i byte davvero liberati."""
+    if DEMO:
+        return previous_size()
+    freed = 0
+    for p in previous_leftovers():
+        before = dir_size(p)
+        try:
+            if os.path.isdir(p):
+                if os.path.basename(p).startswith("_MEI"):
+                    if mei_in_use(p):       # ricontrollata subito prima: una copia può essere appena partita
+                        continue
+                shutil.rmtree(p, ignore_errors=True)
+            else:
+                os.remove(p)
+        except OSError:
+            continue
+        freed += before - (dir_size(p) if os.path.exists(p) else 0)
+    previous_size(fresh=True)
+    return max(0, freed)
+
+
 def cleanup():
     """Cancella gli installer scaricati da winget e i file temporanei. Restituisce i byte liberati."""
     with lock:
@@ -1750,6 +1835,7 @@ class Handler(BaseHTTPRequestHandler):
         history = load_history()
         settings = load_settings()
         excluded = load_excluded()
+        previous_bytes = previous_size()   # fuori dal lock: può percorrere cartelle
         with lock:
             return {
                 "scanning": state["scanning"], "scanned_at": state["scanned_at"],
@@ -1766,7 +1852,7 @@ class Handler(BaseHTTPRequestHandler):
                 "password": is_admin() or DEMO,
                 "scan_warnings": state["scan_warnings"], "stale": state["stale"],
                 "stopping": state["stop"], "quitting": state["quit_after"] or state.get("quitting", False),
-                "history": history, "restore": state.get("restore"),
+                "history": history, "restore": state.get("restore"), "previous_bytes": previous_bytes,
                 "rollbackable": [h["at"] for h in history if can_rollback(h)],
                 "pending_count": len([i for i in state["items"] if not i.get("updated") and not i.get("moved")
                                       and i.get("key") not in excluded and not active_snooze(i, settings)]),
@@ -1959,6 +2045,25 @@ class Handler(BaseHTTPRequestHandler):
                     with lock:
                         state["running"] = False
             threading.Thread(target=job, daemon=True).start()
+            return self.send(200, self.snapshot())
+        if u.path == "/api/previous/clear":
+            with lock:
+                if state["running"] or state["scanning"] or state["cleaning"] or \
+                        (state.get("restore") and state["restore"].get("status") == "running"):
+                    return self.send(409, {"error": t("busy")})
+                state["running"] = state["cleaning"] = True
+
+            def clear_job():
+                freed = 0
+                try:
+                    freed = clear_previous()
+                except Exception as e:
+                    log_line("cancellazione versioni precedenti", e)
+                finally:
+                    update_settings(lambda st: st.update(last_previous_clear={"at": time.time(), "freed": freed}))
+                    with lock:
+                        state["running"] = state["cleaning"] = False
+            threading.Thread(target=clear_job, daemon=True).start()
             return self.send(200, self.snapshot())
         if u.path == "/api/settings":
             for key in ("daily_check", "auto_update", "welcomed", "login", "only_ac", "avoid_metered"):
