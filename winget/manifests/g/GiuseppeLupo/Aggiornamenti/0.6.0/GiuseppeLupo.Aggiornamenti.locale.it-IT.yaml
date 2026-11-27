@@ -1,0 +1,20 @@
+# yaml-language-server: $schema=https://aka.ms/winget-manifest.defaultLocale.1.9.0.schema.json
+
+PackageIdentifier: GiuseppeLupo.Aggiornamenti
+PackageVersion: 0.6.0
+PackageLocale: it-IT
+Publisher: Giuseppe Lupo
+PublisherUrl: https://github.com/giuseppelupo1979
+PackageName: Aggiornamenti
+PackageUrl: https://github.com/giuseppelupo1979/aggiornamenti-windows
+License: MIT
+LicenseUrl: https://github.com/giuseppelupo1979/aggiornamenti-windows/blob/main/LICENSE
+ShortDescription: Aggiorna con un clic i programmi del PC che winget conosce.
+Description: Pagina locale che elenca i programmi con una versione nuova e li aggiorna tutti insieme tramite winget, con aggiornamento notturno, rinvii, storico e ritorno alla versione precedente.
+Tags:
+- updater
+- winget
+- aggiornamenti
+ReleaseNotesUrl: https://github.com/giuseppelupo1979/aggiornamenti-windows/releases/tag/v0.6.0
+ManifestType: defaultLocale
+ManifestVersion: 1.9.0
