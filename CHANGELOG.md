@@ -13,7 +13,7 @@ Tutte le modifiche rilevanti al progetto. Le versioni seguono il [versionamento 
 
 ### Verifica
 - 72 test automatici (solo resti sicuri, cartelle di altri programmi e quella in uso intatte, rifiuto mentre il programma è occupato, codice di accesso obbligatorio) e prova della demo nel browser.
-- **Provato su Windows 11 reale (VM ARM64):** 183,9 MB liberati, la cartella dell'Aggiornamenti in esecuzione intatta (62 file) e la sua pagina ancora raggiungibile. Il pulsante nella finestra Edge dell'exe compilato non è stato provato: l'exe 0.6.0 lo costruisce GitHub al rilascio.
+- **Provato su Windows 11 reale (VM ARM64):** 183,9 MB liberati, la cartella dell'Aggiornamenti in esecuzione intatta (62 file) e la sua pagina ancora raggiungibile. Dopo il rilascio: auto-aggiornamento della VM dalla 0.4.0 alla 0.6.0 riuscito (exe ARM64 di GitHub, con privilegi di amministratore); il pulsante, chiamato con il codice di accesso, ha liberato 25,8 MB da una cartella `_MEI` di prova lasciando intatta quella in uso, e la pagina aperta in Edge mostra il pulsante e l'esito.
 
 ## [0.5.0] - 2026-11-10
 
